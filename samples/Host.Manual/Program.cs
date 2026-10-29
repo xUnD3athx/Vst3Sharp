@@ -147,6 +147,12 @@ unsafe
                     int textHr = getParamStringByValue(controller, 0, 0.25, text);
                     Console.WriteLine(
                         $"param[0] hr=0x{paramHr:X8} id={parameter.Id} default={parameter.DefaultNormalizedValue:0.000} text(0.25, hr=0x{textHr:X8})=\"{String128.Read(text)}\"");
+
+                    ParameterInfo scAmount = default;
+                    int scHr = getParameterInfo(controller, 1, &scAmount);
+                    int scTextHr = getParamStringByValue(controller, 1, 0.8, text);
+                    Console.WriteLine(
+                        $"param[1] hr=0x{scHr:X8} id={scAmount.Id} default={scAmount.DefaultNormalizedValue:0.000} text(0.8, hr=0x{scTextHr:X8})=\"{String128.Read(text)}\"");
                 }
 
                 ProcessSetup setup = default;
@@ -166,6 +172,9 @@ unsafe
 
                 Console.WriteLine("block 1: passthrough");
                 BlockRunner.Run(process, processor, 0.8f, 0.4f);
+
+                Console.WriteLine("block 1b: sidechain signal present, SC Amount still 0 (must stay unity)");
+                BlockRunner.Run(process, processor, 0.8f, 0.4f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
 
                 Event noteOn = default;
                 noteOn.Type = EventTypes.NoteOn;
@@ -189,8 +198,9 @@ unsafe
 
                 events.Clear();
                 activateBus(component, MediaTypes.Audio, BusDirections.Input, 1, 1);
-                Console.WriteLine("block 4: sidechain level 0.8");
-                BlockRunner.Run(process, processor, 0.8f, 0.16f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
+                setParamNormalized(controller, 1, 0.8);
+                Console.WriteLine("block 4: sidechain level 0.8, SC Amount 0.8");
+                BlockRunner.Run(process, processor, 0.8f, 0.144f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
 
                 events.Release();
 

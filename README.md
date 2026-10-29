@@ -2,7 +2,7 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S2 —— 合并式组件、1 进 1 出立体声、Gain 参数、MIDI 事件输入（音符门控）、Sidechain 辅助输入（侧链压低）、`.vst3` bundle 打包。
+状态：S2.1 —— 合并式组件、1 进 1 出立体声、Gain 与 SC Amount 参数、MIDI 事件输入（音符门控）、Sidechain 辅助输入（默认关闭，由 SC Amount 开启）、`.vst3` bundle 打包。
 
 ## 结构
 
@@ -36,7 +36,7 @@ C:\Program Files\Common Files\VST3\
 然后在 FL Studio 里重新扫描（Options → Manage plugins → Verify plugins）。
 
 - **Gain**：插件参数面板里拉到 0 应静音，拉回 1.0 恢复。
-- **Sidechain**：插件包装器的输入路由里把另一条轨 Send 到 `Sidechain`，主信号会随侧链电平被压低（最多 -75%）。
+- **SC Amount**：默认 0，插件保持直通（即使宿主送入 sidechain 缓冲也不压）。调到 80% 后，把另一条轨 Send 到 `Sidechain`，主信号才会被压低。
 - **MIDI**：FL 对效果器的 MIDI 路由支持有限；音符门控已在 `Host.Manual` 里验证（note-on velocity 缩放增益，note-off 恢复）。
 
 ## 尚未实现

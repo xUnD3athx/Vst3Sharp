@@ -25,6 +25,10 @@ internal unsafe sealed class PluginComponent : ComObject
     private void* _componentHandler;
     private double _midiGate = 1.0;
     private byte _sidechainActive;
+    private double _sidechainAmount;
+
+    private const uint GainParameterId = 0;
+    private const uint SidechainAmountParameterId = 1;
 
     static PluginComponent()
     {
@@ -344,7 +348,7 @@ internal unsafe sealed class PluginComponent : ComObject
         ApplyEvents(data, instance);
 
         float gain = (float)(instance._gainNormalized * MaxGain) * (float)instance._midiGate;
-        gain *= ComputeSidechainDuck(data);
+        gain *= ComputeSidechainDuck(data, instance);
 
         int outChannels = outputs[0].NumChannels;
         float** outPointers = outputs[0].ChannelBuffers32;
@@ -407,8 +411,12 @@ internal unsafe sealed class PluginComponent : ComObject
         }
     }
 
-    private static float ComputeSidechainDuck(ProcessData* data)
+    private static float ComputeSidechainDuck(ProcessData* data, PluginComponent instance)
     {
+        double amount = instance._sidechainAmount;
+        if (amount <= 0.0)
+            return 1.0f;
+
         if (data->NumInputs < 2)
             return 1.0f;
 
@@ -440,7 +448,7 @@ internal unsafe sealed class PluginComponent : ComObject
         if (peak > 1.0f)
             peak = 1.0f;
 
-        return 1.0f - 0.75f * peak;
+        return (float)(1.0 - amount * peak);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
@@ -452,38 +460,70 @@ internal unsafe sealed class PluginComponent : ComObject
     private static int SetComponentState(void* self, void* stream) => Result.NotImplemented;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetParameterCount(void* self) => 1;
+    private static int GetParameterCount(void* self) => 2;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetParameterInfo(void* self, int index, ParameterInfo* info)
     {
-        if (info == null || index != 0)
+        if (info == null)
             return Result.InvalidArgument;
 
-        info->Id = 0;
-        info->SetTitle("Gain");
-        info->SetShortTitle("Gain");
-        info->SetUnits("x");
+        info->Id = (uint)index;
         info->StepCount = 0;
-        info->DefaultNormalizedValue = 0.5;
         info->UnitId = 0;
         info->Flags = ParameterFlags.CanAutomate;
-        return Result.Ok;
+
+        if (index == 0)
+        {
+            info->SetTitle("Gain");
+            info->SetShortTitle("Gain");
+            info->SetUnits("x");
+            info->DefaultNormalizedValue = 0.5;
+            return Result.Ok;
+        }
+
+        if (index == 1)
+        {
+            info->SetTitle("SC Amount");
+            info->SetShortTitle("SC");
+            info->SetUnits("%");
+            info->DefaultNormalizedValue = 0.0;
+            return Result.Ok;
+        }
+
+        return Result.InvalidArgument;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetParamStringByValue(void* self, uint id, double value, char* text)
     {
-        if (text == null || id != 0)
+        if (text == null)
             return Result.InvalidArgument;
 
         Span<char> buffer = stackalloc char[64];
-        double plain = value * MaxGain;
-        if (!plain.TryFormat(buffer, out int written, "0.00", CultureInfo.InvariantCulture))
-            return Result.InternalError;
+        int written;
 
-        buffer[written++] = ' ';
-        buffer[written++] = 'x';
+        if (id == GainParameterId)
+        {
+            double plain = value * MaxGain;
+            if (!plain.TryFormat(buffer, out written, "0.00", CultureInfo.InvariantCulture))
+                return Result.InternalError;
+
+            buffer[written++] = ' ';
+            buffer[written++] = 'x';
+        }
+        else if (id == SidechainAmountParameterId)
+        {
+            double percent = value * 100.0;
+            if (!percent.TryFormat(buffer, out written, "0", CultureInfo.InvariantCulture))
+                return Result.InternalError;
+
+            buffer[written++] = '%';
+        }
+        else
+        {
+            return Result.InvalidArgument;
+        }
 
         if (written >= String128.Capacity)
             written = String128.Capacity - 1;
@@ -498,36 +538,69 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetParamValueByString(void* self, uint id, char* text, double* value)
     {
-        if (text == null || value == null || id != 0)
+        if (text == null || value == null)
             return Result.InvalidArgument;
 
-        string source = String128.Read(text).TrimEnd('x', 'X', ' ');
+        string source = String128.Read(text).TrimEnd('x', 'X', '%', ' ');
         if (!double.TryParse(source, NumberStyles.Float, CultureInfo.InvariantCulture, out double plain))
             return Result.False;
 
-        *value = Math.Clamp(plain / MaxGain, 0.0, 1.0);
-        return Result.Ok;
+        if (id == GainParameterId)
+        {
+            *value = Math.Clamp(plain / MaxGain, 0.0, 1.0);
+            return Result.Ok;
+        }
+
+        if (id == SidechainAmountParameterId)
+        {
+            *value = Math.Clamp(plain / 100.0, 0.0, 1.0);
+            return Result.Ok;
+        }
+
+        return Result.InvalidArgument;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static double NormalizedParamToPlain(void* self, uint id, double value) => value * MaxGain;
+    private static double NormalizedParamToPlain(void* self, uint id, double value) =>
+        id == GainParameterId ? value * MaxGain : value * 100.0;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static double PlainParamToNormalized(void* self, uint id, double value) =>
-        Math.Clamp(value / MaxGain, 0.0, 1.0);
+        id == GainParameterId
+            ? Math.Clamp(value / MaxGain, 0.0, 1.0)
+            : Math.Clamp(value / 100.0, 0.0, 1.0);
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static double GetParamNormalized(void* self, uint id) =>
-        id == 0 ? Self<PluginComponent>(self)._gainNormalized : 0.0;
+    private static double GetParamNormalized(void* self, uint id)
+    {
+        var instance = Self<PluginComponent>(self);
+        return id switch
+        {
+            GainParameterId => instance._gainNormalized,
+            SidechainAmountParameterId => instance._sidechainAmount,
+            _ => 0.0
+        };
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int SetParamNormalized(void* self, uint id, double value)
     {
-        if (id != 0)
-            return Result.InvalidArgument;
+        var instance = Self<PluginComponent>(self);
+        double clamped = Math.Clamp(value, 0.0, 1.0);
 
-        Self<PluginComponent>(self)._gainNormalized = Math.Clamp(value, 0.0, 1.0);
-        return Result.Ok;
+        if (id == GainParameterId)
+        {
+            instance._gainNormalized = clamped;
+            return Result.Ok;
+        }
+
+        if (id == SidechainAmountParameterId)
+        {
+            instance._sidechainAmount = clamped;
+            return Result.Ok;
+        }
+
+        return Result.InvalidArgument;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
