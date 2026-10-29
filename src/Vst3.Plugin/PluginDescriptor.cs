@@ -7,4 +7,6 @@ public sealed record PluginDescriptor(
     string Vendor = "Unknown",
     string Url = "",
     string Email = "",
-    string Category = "Audio Module Class");
+    string Category = "Audio Module Class",
+    string SubCategories = "Fx",
+    string Version = "1.0.0");

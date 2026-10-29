@@ -11,7 +11,7 @@ namespace Vst3.Plugin;
 /// </summary>
 internal unsafe sealed class PluginFactory
 {
-    private const int VtableSlots = 7;
+    private const int VtableSlots = 8;
     private const int HeaderSlots = 2;
 
     private static nint* s_vtable;
@@ -29,6 +29,7 @@ internal unsafe sealed class PluginFactory
         s_vtable[4] = (nint)(delegate* unmanaged[Stdcall]<void*, int>)&CountClasses;
         s_vtable[5] = (nint)(delegate* unmanaged[Stdcall]<void*, int, PClassInfo*, int>)&GetClassInfo;
         s_vtable[6] = (nint)(delegate* unmanaged[Stdcall]<void*, Guid*, Guid*, void**, int>)&CreateInstance;
+        s_vtable[7] = (nint)(delegate* unmanaged[Stdcall]<void*, int, PClassInfo2*, int>)&GetClassInfo2;
     }
 
     private PluginFactory(PluginDescriptor descriptor)
@@ -60,7 +61,7 @@ internal unsafe sealed class PluginFactory
 
         *obj = null;
 
-        if (*iid == IIds.FUnknown || *iid == IIds.IPluginFactory)
+        if (*iid == IIds.FUnknown || *iid == IIds.IPluginFactory || *iid == IIds.IPluginFactory2)
         {
             From(self).AddRefCore();
             *obj = self;
@@ -125,10 +126,43 @@ internal unsafe sealed class PluginFactory
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int CreateInstance(void* self, Guid* cid, Guid* iid, void** obj)
     {
-        if (obj != null)
-            *obj = null;
+        if (cid == null || iid == null || obj == null)
+            return Result.InvalidArgument;
 
-        return Result.NotImplemented;
+        *obj = null;
+
+        var descriptor = s_descriptor;
+        if (descriptor == null || *cid != descriptor.ClassId)
+            return Result.InvalidArgument;
+
+        var component = new PluginComponent();
+        if (!component.TryGetView(*iid, out void* view))
+        {
+            component.ReleaseCore();
+            return Result.NoInterface;
+        }
+
+        *obj = view;
+        return Result.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int GetClassInfo2(void* self, int index, PClassInfo2* info)
+    {
+        var descriptor = s_descriptor;
+        if (info == null || descriptor == null || index != 0)
+            return Result.InvalidArgument;
+
+        info->Cid = descriptor.ClassId;
+        info->Cardinality = PClassInfo.ManyInstances;
+        info->ClassFlags = 0;
+        info->SetCategory(descriptor.Category);
+        info->SetName(descriptor.Name);
+        info->SetSubCategories(descriptor.SubCategories);
+        info->SetVendor(descriptor.Vendor);
+        info->SetVersion(descriptor.Version);
+        info->SetSdkVersion("VST 3.7.11");
+        return Result.Ok;
     }
 
     private uint AddRefCore() => (uint)Interlocked.Increment(ref _refCount);

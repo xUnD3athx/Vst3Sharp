@@ -11,7 +11,9 @@ public static unsafe class Module
         ClassId: new Guid("A1B2C3D4-0000-4000-8000-000000000001"),
         Vendor: "UnD3ath",
         Url: "https://example.invalid",
-        Email: "dev@example.invalid");
+        Email: "dev@example.invalid",
+        SubCategories: "Fx",
+        Version: "1.0.0");
 
     [UnmanagedCallersOnly(EntryPoint = "GetPluginFactory", CallConvs = new[] { typeof(CallConvStdcall) })]
     public static void* GetPluginFactory()

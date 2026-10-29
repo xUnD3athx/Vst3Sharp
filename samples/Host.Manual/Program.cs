@@ -3,7 +3,7 @@ using Vst3.Interop;
 
 if (args.Length < 1)
 {
-    Console.Error.WriteLine("usage: Host.Manual <path-to-plugin.dll>");
+    Console.Error.WriteLine("usage: Host.Manual <path-to-plugin.vst3>");
     return 1;
 }
 
@@ -20,10 +20,7 @@ unsafe
     try
     {
         if (NativeLibrary.TryGetExport(library, "InitDll", out nint initDll))
-        {
-            byte ok = ((delegate* unmanaged[Stdcall]<byte>)initDll)();
-            Console.WriteLine($"InitDll -> {ok}");
-        }
+            Console.WriteLine($"InitDll -> {((delegate* unmanaged[Stdcall]<byte>)initDll)()}");
 
         if (!NativeLibrary.TryGetExport(library, "GetPluginFactory", out nint getFactoryPtr))
         {
@@ -38,36 +35,195 @@ unsafe
             return 4;
         }
 
-        nint* vt = Vtable.Of(factory);
-        var release = (delegate* unmanaged[Stdcall]<void*, uint>)vt[2];
-        var getFactoryInfo = (delegate* unmanaged[Stdcall]<void*, PFactoryInfo*, int>)vt[3];
-        var countClasses = (delegate* unmanaged[Stdcall]<void*, int>)vt[4];
-        var getClassInfo = (delegate* unmanaged[Stdcall]<void*, int, PClassInfo*, int>)vt[5];
+        nint* factoryVt = Vtable.Of(factory);
+        var queryInterface = (delegate* unmanaged[Stdcall]<void*, Guid*, void**, int>)factoryVt[0];
+        var releaseFactory = (delegate* unmanaged[Stdcall]<void*, uint>)factoryVt[2];
+        var getFactoryInfo = (delegate* unmanaged[Stdcall]<void*, PFactoryInfo*, int>)factoryVt[3];
+        var countClasses = (delegate* unmanaged[Stdcall]<void*, int>)factoryVt[4];
+        var getClassInfo = (delegate* unmanaged[Stdcall]<void*, int, PClassInfo*, int>)factoryVt[5];
+        var createInstance = (delegate* unmanaged[Stdcall]<void*, Guid*, Guid*, void**, int>)factoryVt[6];
 
-        PFactoryInfo info = default;
-        int hr = getFactoryInfo(factory, &info);
+        PFactoryInfo factoryInfo = default;
+        int factoryHr = getFactoryInfo(factory, &factoryInfo);
         Console.WriteLine(
-            $"getFactoryInfo -> 0x{hr:X8} vendor=\"{info.GetVendor()}\" url=\"{info.GetUrl()}\" email=\"{info.GetEmail()}\" flags=0x{info.Flags:X}");
+            $"getFactoryInfo -> 0x{factoryHr:X8} vendor=\"{factoryInfo.GetVendor()}\" url=\"{factoryInfo.GetUrl()}\" flags=0x{factoryInfo.Flags:X}");
 
-        int count = countClasses(factory);
-        Console.WriteLine($"countClasses -> {count}");
-
-        for (int i = 0; i < count; i++)
+        int classCount = countClasses(factory);
+        Console.WriteLine($"countClasses -> {classCount}");
+        if (classCount <= 0)
         {
-            PClassInfo classInfo = default;
-            int classHr = getClassInfo(factory, i, &classInfo);
-            Console.WriteLine(
-                $"[{i}] hr=0x{classHr:X8} cid={classInfo.Cid} category=\"{classInfo.GetCategory()}\" name=\"{classInfo.GetName()}\"");
+            releaseFactory(factory);
+            return 5;
         }
 
-        uint remaining = release(factory);
-        Console.WriteLine($"release -> {remaining}");
+        PClassInfo classInfo = default;
+        int classHr = getClassInfo(factory, 0, &classInfo);
+        Console.WriteLine(
+            $"[0] getClassInfo -> 0x{classHr:X8} cid={classInfo.Cid} category=\"{classInfo.GetCategory()}\" name=\"{classInfo.GetName()}\"");
+
+        Guid factory2Iid = IIds.IPluginFactory2;
+        void* factory2 = null;
+        queryInterface(factory, &factory2Iid, &factory2);
+        if (factory2 != null)
+        {
+            var getClassInfo2 = (delegate* unmanaged[Stdcall]<void*, int, PClassInfo2*, int>)Vtable.Slot(factory2, 7);
+            PClassInfo2 classInfo2 = default;
+            int hr2 = getClassInfo2(factory2, 0, &classInfo2);
+            Console.WriteLine($"[0] getClassInfo2 -> 0x{hr2:X8} subCategories=\"{classInfo2.GetSubCategories()}\"");
+            ((delegate* unmanaged[Stdcall]<void*, uint>)Vtable.Slot(factory2, 2))(factory2);
+        }
+        else
+        {
+            Console.WriteLine("IPluginFactory2 not supported");
+        }
+
+        Guid classId = classInfo.Cid;
+        Guid componentIid = IIds.IComponent;
+        void* component = null;
+        int createHr = createInstance(factory, &classId, &componentIid, &component);
+        Console.WriteLine($"createInstance(IComponent) -> 0x{createHr:X8} ptr=0x{(nint)component:X}");
+
+        if (component != null)
+        {
+            nint* componentVt = Vtable.Of(component);
+            var queryComponent = (delegate* unmanaged[Stdcall]<void*, Guid*, void**, int>)componentVt[0];
+            var releaseComponent = (delegate* unmanaged[Stdcall]<void*, uint>)componentVt[2];
+            var initialize = (delegate* unmanaged[Stdcall]<void*, void*, int>)componentVt[3];
+            var terminate = (delegate* unmanaged[Stdcall]<void*, int>)componentVt[4];
+            var getBusCount = (delegate* unmanaged[Stdcall]<void*, int, int, int>)componentVt[7];
+            var getBusInfo = (delegate* unmanaged[Stdcall]<void*, int, int, int, BusInfo*, int>)componentVt[8];
+            var setActive = (delegate* unmanaged[Stdcall]<void*, byte, int>)componentVt[11];
+
+            Console.WriteLine($"initialize -> 0x{initialize(component, null):X8}");
+
+            int audioIn = getBusCount(component, MediaTypes.Audio, BusDirections.Input);
+            int audioOut = getBusCount(component, MediaTypes.Audio, BusDirections.Output);
+            Console.WriteLine($"bus counts: audio in={audioIn} out={audioOut}");
+
+            for (int i = 0; i < audioIn; i++)
+            {
+                BusInfo bus = default;
+                int busHr = getBusInfo(component, MediaTypes.Audio, BusDirections.Input, i, &bus);
+                Console.WriteLine(
+                    $"  input[{i}] hr=0x{busHr:X8} channels={bus.ChannelCount} type={bus.BusType} flags=0x{bus.Flags:X} name=\"{bus.GetName()}\"");
+            }
+
+            Guid processorIid = IIds.IAudioProcessor;
+            void* processor = null;
+            queryComponent(component, &processorIid, &processor);
+
+            Guid controllerIid = IIds.IEditController;
+            void* controller = null;
+            queryComponent(component, &controllerIid, &controller);
+
+            Console.WriteLine($"QI: processor={(processor != null)} controller={(controller != null)}");
+
+            if (processor != null && controller != null)
+            {
+                nint* processorVt = Vtable.Of(processor);
+                var releaseProcessor = (delegate* unmanaged[Stdcall]<void*, uint>)processorVt[2];
+                var setupProcessing = (delegate* unmanaged[Stdcall]<void*, ProcessSetup*, int>)processorVt[7];
+                var setProcessing = (delegate* unmanaged[Stdcall]<void*, byte, int>)processorVt[8];
+                var process = (delegate* unmanaged[Stdcall]<void*, ProcessData*, int>)processorVt[9];
+
+                nint* controllerVt = Vtable.Of(controller);
+                var releaseController = (delegate* unmanaged[Stdcall]<void*, uint>)controllerVt[2];
+                var getParameterCount = (delegate* unmanaged[Stdcall]<void*, int>)controllerVt[8];
+                var getParameterInfo = (delegate* unmanaged[Stdcall]<void*, int, ParameterInfo*, int>)controllerVt[9];
+                var getParamStringByValue = (delegate* unmanaged[Stdcall]<void*, uint, double, char*, int>)controllerVt[10];
+                var getParamNormalized = (delegate* unmanaged[Stdcall]<void*, uint, double>)controllerVt[14];
+                var setParamNormalized = (delegate* unmanaged[Stdcall]<void*, uint, double, int>)controllerVt[15];
+
+                int parameterCount = getParameterCount(controller);
+                Console.WriteLine($"parameterCount -> {parameterCount}");
+
+                if (parameterCount > 0)
+                {
+                    ParameterInfo parameter = default;
+                    int paramHr = getParameterInfo(controller, 0, &parameter);
+                    char* text = stackalloc char[128];
+                    int textHr = getParamStringByValue(controller, 0, 0.25, text);
+                    Console.WriteLine(
+                        $"param[0] hr=0x{paramHr:X8} id={parameter.Id} default={parameter.DefaultNormalizedValue:0.000} text(0.25, hr=0x{textHr:X8})=\"{String128.Read(text)}\"");
+                }
+
+                ProcessSetup setup = default;
+                setup.ProcessMode = ProcessModes.Realtime;
+                setup.SymbolicSampleSize = SampleSizes.Sample32;
+                setup.MaxSamplesPerBlock = 128;
+                setup.SampleRate = 48000.0;
+                Console.WriteLine($"setupProcessing -> 0x{setupProcessing(processor, &setup):X8}");
+
+                int setHr = setParamNormalized(controller, 0, 0.25);
+                Console.WriteLine($"setParamNormalized(0, 0.25) -> 0x{setHr:X8} now={getParamNormalized(controller, 0):0.000}");
+
+                setActive(component, 1);
+                setProcessing(processor, 1);
+
+                const int frames = 128;
+                float[] inLeft = new float[frames];
+                float[] inRight = new float[frames];
+                float[] outLeft = new float[frames];
+                float[] outRight = new float[frames];
+                Array.Fill(inLeft, 0.8f);
+                Array.Fill(inRight, -0.8f);
+
+                fixed (float* pInLeft = inLeft, pInRight = inRight, pOutLeft = outLeft, pOutRight = outRight)
+                {
+                    float** inChannels = stackalloc float*[2];
+                    float** outChannels = stackalloc float*[2];
+                    inChannels[0] = pInLeft;
+                    inChannels[1] = pInRight;
+                    outChannels[0] = pOutLeft;
+                    outChannels[1] = pOutRight;
+
+                    AudioBusBuffers inputBus = default;
+                    inputBus.NumChannels = 2;
+                    inputBus.ChannelBuffers32 = inChannels;
+
+                    AudioBusBuffers outputBus = default;
+                    outputBus.NumChannels = 2;
+                    outputBus.ChannelBuffers32 = outChannels;
+
+                    ProcessData data = default;
+                    data.ProcessMode = ProcessModes.Realtime;
+                    data.SymbolicSampleSize = SampleSizes.Sample32;
+                    data.NumSamples = frames;
+                    data.NumInputs = 1;
+                    data.NumOutputs = 1;
+                    data.Inputs = &inputBus;
+                    data.Outputs = &outputBus;
+
+                    int processHr = process(processor, &data);
+                    Console.WriteLine($"process -> 0x{processHr:X8} outL[0]={outLeft[0]:0.000} outR[0]={outRight[0]:0.000}");
+
+                    bool pass = true;
+                    for (int i = 0; i < frames; i++)
+                    {
+                        if (MathF.Abs(outLeft[i] - 0.4f) > 1e-5f || MathF.Abs(outRight[i] + 0.4f) > 1e-5f)
+                        {
+                            pass = false;
+                            break;
+                        }
+                    }
+
+                    Console.WriteLine($"gain check (expect +/-0.4) -> {(pass ? "PASS" : "FAIL")}");
+                }
+
+                setProcessing(processor, 0);
+                setActive(component, 0);
+                releaseController(controller);
+                releaseProcessor(processor);
+            }
+
+            terminate(component);
+            releaseComponent(component);
+        }
+
+        releaseFactory(factory);
 
         if (NativeLibrary.TryGetExport(library, "ExitDll", out nint exitDll))
-        {
-            byte ok = ((delegate* unmanaged[Stdcall]<byte>)exitDll)();
-            Console.WriteLine($"ExitDll -> {ok}");
-        }
+            Console.WriteLine($"ExitDll -> {((delegate* unmanaged[Stdcall]<byte>)exitDll)()}");
     }
     finally
     {

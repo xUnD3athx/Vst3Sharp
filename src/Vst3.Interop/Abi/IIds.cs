@@ -9,6 +9,7 @@ public static class IIds
     public static readonly Guid FUnknown = new("00000000-0000-0000-C000-000000000046");
     public static readonly Guid IPluginBase = new("22888DDB-156E-45AE-8358-B34808190625");
     public static readonly Guid IPluginFactory = new("7A4D811C-5211-4A1F-AED9-D2EE0B43BF9F");
+    public static readonly Guid IPluginFactory2 = new("0007B650-F24B-4C0B-A464-EDB9F00B2ABB");
     public static readonly Guid IComponent = new("E831FF31-F2D5-4301-928E-BBEE25697802");
     public static readonly Guid IAudioProcessor = new("42043F99-B7DA-453C-A569-E79D9AAEC33D");
     public static readonly Guid IEditController = new("DCD7BBE3-7742-448D-A874-AACC979C759E");
