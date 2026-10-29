@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Vst3.Plugin</RootNamespace>
+    <AssemblyName>Vst3.Plugin</AssemblyName>
+    <Description>Author-facing VST3 plugin scaffolding (S0: factory + module exports).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Vst3.Interop\Vst3.Interop.csproj" />
+  </ItemGroup>
+</Project>

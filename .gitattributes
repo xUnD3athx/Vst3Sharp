@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.slnx text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.md text eol=lf

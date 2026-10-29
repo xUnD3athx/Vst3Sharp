@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Plugin.Passthrough</AssemblyName>
+    <RootNamespace>Plugin.Passthrough</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <StripSymbols>false</StripSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vst3.Plugin\Vst3.Plugin.csproj" />
+  </ItemGroup>
+</Project>

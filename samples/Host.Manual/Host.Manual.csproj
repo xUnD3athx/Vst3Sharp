@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Host.Manual</AssemblyName>
+    <RootNamespace>Host.Manual</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vst3.Interop\Vst3.Interop.csproj" />
+  </ItemGroup>
+</Project>

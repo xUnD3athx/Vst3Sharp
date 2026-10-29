@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Vst3.Interop</RootNamespace>
+    <AssemblyName>Vst3.Interop</AssemblyName>
+    <Description>Minimal VST3 ABI interop primitives for Windows x64.</Description>
+  </PropertyGroup>
+</Project>

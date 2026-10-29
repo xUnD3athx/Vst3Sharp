@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Vst3.Interop/Vst3.Interop.csproj" />
+    <Project Path="src/Vst3.Plugin/Vst3.Plugin.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Host.Manual/Host.Manual.csproj" />
+    <Project Path="samples/Plugin.Passthrough/Plugin.Passthrough.csproj" />
+  </Folder>
+</Solution>
