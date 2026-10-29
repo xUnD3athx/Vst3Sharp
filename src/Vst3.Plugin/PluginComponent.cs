@@ -453,20 +453,6 @@ internal unsafe sealed class PluginComponent : ComObject
         if (!plain.TryFormat(buffer, out int written, "0.###", CultureInfo.InvariantCulture))
             return Result.InternalError;
 
-        string? units = descriptor.Units;
-        if (!string.IsNullOrEmpty(units))
-        {
-            if (written < buffer.Length)
-                buffer[written++] = ' ';
-
-            foreach (char c in units)
-            {
-                if (written >= buffer.Length)
-                    break;
-                buffer[written++] = c;
-            }
-        }
-
         if (written >= String128.Capacity)
             written = String128.Capacity - 1;
 
