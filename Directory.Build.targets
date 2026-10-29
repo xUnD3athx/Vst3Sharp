@@ -1,0 +1,11 @@
+<Project>
+  <Target Name="CreateVst3Bundle" AfterTargets="Publish" Condition="'$(IsVst3Plugin)' == 'true'">
+    <PropertyGroup>
+      <BundleRoot>$(PublishDir)$(Vst3BundleName).vst3\Contents\x86_64-win\</BundleRoot>
+    </PropertyGroup>
+    <MakeDir Directories="$(BundleRoot)" />
+    <Copy SourceFiles="$(PublishDir)$(AssemblyName).dll" DestinationFiles="$(BundleRoot)$(Vst3BundleName).vst3" />
+    <Copy SourceFiles="$(PublishDir)$(AssemblyName).pdb" DestinationFiles="$(BundleRoot)$(Vst3BundleName).pdb" Condition="Exists('$(PublishDir)$(AssemblyName).pdb')" />
+    <Message Importance="high" Text="VST3 bundle: $(BundleRoot)" />
+  </Target>
+</Project>

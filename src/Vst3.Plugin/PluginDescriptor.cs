@@ -11,4 +11,5 @@ public sealed record PluginDescriptor(
     string SubCategories = "Fx",
     string Version = "1.0.0",
     IReadOnlyList<ParameterDescriptor>? Parameters = null,
-    Func<AudioProcessor>? CreateProcessor = null);
+    Func<AudioProcessor>? CreateProcessor = null,
+    PluginKind Kind = PluginKind.Effect);

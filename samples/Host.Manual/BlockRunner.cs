@@ -90,4 +90,51 @@ internal static unsafe class BlockRunner
             return pass;
         }
     }
+
+    public static float RunInstrument(
+        delegate* unmanaged[Stdcall]<void*, ProcessData*, int> process,
+        void* processor,
+        void* events)
+    {
+        float[] left = new float[Frames];
+        float[] right = new float[Frames];
+
+        fixed (float* pLeft = left, pRight = right)
+        {
+            float** channels = stackalloc float*[2];
+            channels[0] = pLeft;
+            channels[1] = pRight;
+
+            AudioBusBuffers outputBus = default;
+            outputBus.NumChannels = 2;
+            outputBus.ChannelBuffers32 = channels;
+
+            ProcessData data = default;
+            data.ProcessMode = ProcessModes.Realtime;
+            data.SymbolicSampleSize = SampleSizes.Sample32;
+            data.NumSamples = Frames;
+            data.NumInputs = 0;
+            data.NumOutputs = 1;
+            data.Inputs = null;
+            data.Outputs = &outputBus;
+            data.InputEvents = events;
+
+            int hr = process(processor, &data);
+
+            float peak = 0.0f;
+            for (int i = 0; i < Frames; i++)
+            {
+                float value = MathF.Abs(left[i]);
+                if (value > peak)
+                    peak = value;
+
+                value = MathF.Abs(right[i]);
+                if (value > peak)
+                    peak = value;
+            }
+
+            Console.WriteLine($"  synth process hr=0x{hr:X8} peak={peak:0.000}");
+            return peak;
+        }
+    }
 }

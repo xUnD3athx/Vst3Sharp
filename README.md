@@ -2,15 +2,16 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S4 —— 作者 API（参数与 DSP 由插件自己声明/实现）、合并式组件、立体声、MIDI 事件、Sidechain、状态存取、自动化输入、`.vst3` bundle 打包。
+状态：S5 —— Effect 与 Instrument 两类插件、通用作者 API、MIDI 事件、Sidechain、状态存取、自动化输入、`.vst3` bundle 打包。
 
 ## 结构
 
 ```
-src/Vst3.Interop      ABI 基础：TUID、工厂/总线/处理结构体、vtable 读取、结果码
-src/Vst3.Plugin       插件侧：工厂（含 IPluginFactory2）、合并式组件、模块导出
-samples/Plugin.Passthrough   示例插件（AOT 共享库 + .vst3 bundle）
-samples/Host.Manual          控制台宿主（枚举 + 实例化 + 离线处理）
+src/Vst3.Interop               ABI 基础：TUID、结构体、vtable、结果码
+src/Vst3.Plugin                框架：工厂、合并式组件、参数/状态/自动化/事件、作者 API
+samples/Plugin.Passthrough     Effect 示例：Gain + SC Amount + Sidechain
+samples/Plugin.SineSynth       Instrument 示例：16 音正弦合成器（验证 MIDI）
+samples/Host.Manual            控制台宿主：effect 与 synth 两条离线测试路径
 ```
 
 ## 快速开始
@@ -19,15 +20,20 @@ samples/Host.Manual          控制台宿主（枚举 + 实例化 + 离线处理
 dotnet build Vst3Sharp.slnx
 
 dotnet publish samples/Plugin.Passthrough -c Release -r win-x64
+dotnet publish samples/Plugin.SineSynth -c Release -r win-x64
+
+# Effect：直通 / sidechain / 自动化 / 状态
 dotnet run --project samples/Host.Manual -c Release -- \
   samples/Plugin.Passthrough/bin/Release/net10.0/win-x64/publish/Passthrough.vst3/Contents/x86_64-win/Passthrough.vst3
-```
 
-预期输出包含 `audio in=2`、`input[1] ... name="Sidechain"`、`parameterCount -> 2`、五个音频块 `PASS`，以及 `state roundtrip ... PASS`。
+# Instrument：note-on 出声、note-off 释放
+dotnet run --project samples/Host.Manual -c Release -- synth \
+  samples/Plugin.SineSynth/bin/Release/net10.0/win-x64/publish/SineSynth.vst3/Contents/x86_64-win/SineSynth.vst3
+```
 
 ## 在 FL Studio 里测试
 
-把整个 `Passthrough.vst3` 目录复制到：
+把两个 `*.vst3` 目录复制到：
 
 ```
 C:\Program Files\Common Files\VST3\
@@ -35,16 +41,28 @@ C:\Program Files\Common Files\VST3\
 
 然后在 FL Studio 里重新扫描（Options → Manage plugins → Verify plugins）。
 
-- **Gain**：插件参数面板里拉到 0 应静音，拉回 1.0 恢复。
-- **SC Amount**：默认 0，插件保持直通（即使宿主送入 sidechain 缓冲也不压）。调到 80% 后，把另一条轨 Send 到 `Sidechain`，主信号才会被压低。
-- **MIDI**：FL 对效果器的 MIDI 路由支持有限；音符门控已在 `Host.Manual` 里验证（note-on velocity 缩放增益，note-off 恢复）。
+- **Passthrough**（效果器）：Gain 拉到 0 应静音；SC Amount 默认 0（直通），调到 80% 并把另一条轨 Send 到 `Sidechain` 才会压低。effect 没有 MIDI 输入。
+- **SineSynth**（乐器）：在通道机架里作为乐器加载，弹 MIDI 键盘或画钢琴卷帘，应该听到正弦波；Level 控制音量。
 
 ## 作者 API
 
-- `PluginDescriptor`：类信息 + 参数表 + `CreateProcessor`
-- `AudioProcessor.Process(in ProcessContext)`：作者自己的 DSP
-- `ParameterCollection`：归一化参数读写、plain/normalized 转换
-- 框架只负责 ABI/vtable、参数查询与自动化写入、事件解析、参数状态序列化，不包含任何业务 DSP
+```csharp
+static readonly PluginDescriptor Descriptor = new(
+    Name: "SineSynth", ClassId: ..., Kind: PluginKind.Instrument,
+    Parameters: new ParameterDescriptor[] { new(0, "Level", "Level", "", 0, 1, 0.5) },
+    CreateProcessor: static () => new SineSynthProcessor());
+
+internal sealed class SineSynthProcessor : AudioProcessor
+{
+    public override void Process(in ProcessContext ctx)
+    {
+        var output = ctx.Output(0);
+        // 读 ctx.Events / ctx.SampleCount，写 output[ch]
+    }
+}
+```
+
+框架负责：ABI/vtable、总线布局（Effect / Instrument）、参数查询与自动化、事件解析、参数状态序列化。业务 DSP 全部在插件里。
 
 ## 尚未实现
 

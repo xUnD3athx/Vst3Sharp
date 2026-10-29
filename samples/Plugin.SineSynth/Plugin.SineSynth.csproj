@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Plugin.SineSynth</AssemblyName>
+    <RootNamespace>Plugin.SineSynth</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <StripSymbols>false</StripSymbols>
+    <IsVst3Plugin>true</IsVst3Plugin>
+    <Vst3BundleName>SineSynth</Vst3BundleName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vst3.Plugin\Vst3.Plugin.csproj" />
+  </ItemGroup>
+</Project>

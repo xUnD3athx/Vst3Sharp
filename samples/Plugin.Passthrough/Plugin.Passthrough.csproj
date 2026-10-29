@@ -6,18 +6,10 @@
     <PublishAot>true</PublishAot>
     <NativeLib>Shared</NativeLib>
     <StripSymbols>false</StripSymbols>
+    <IsVst3Plugin>true</IsVst3Plugin>
+    <Vst3BundleName>Passthrough</Vst3BundleName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vst3.Plugin\Vst3.Plugin.csproj" />
   </ItemGroup>
-
-  <Target Name="CreateVst3Bundle" AfterTargets="Publish">
-    <PropertyGroup>
-      <BundleDir>$(PublishDir)Passthrough.vst3\Contents\x86_64-win\</BundleDir>
-    </PropertyGroup>
-    <MakeDir Directories="$(BundleDir)" />
-    <Copy SourceFiles="$(PublishDir)Plugin.Passthrough.dll" DestinationFiles="$(BundleDir)Passthrough.vst3" />
-    <Copy SourceFiles="$(PublishDir)Plugin.Passthrough.pdb" DestinationFiles="$(BundleDir)Passthrough.pdb" Condition="Exists('$(PublishDir)Plugin.Passthrough.pdb')" />
-    <Message Importance="high" Text="VST3 bundle: $(BundleDir)" />
-  </Target>
 </Project>

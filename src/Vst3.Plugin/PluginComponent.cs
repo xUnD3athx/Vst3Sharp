@@ -174,17 +174,21 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetBusCount(void* self, int mediaType, int direction)
     {
+        var kind = Self<PluginComponent>(self)._descriptor.Kind;
+
         if (mediaType == MediaTypes.Audio)
         {
             if (direction == BusDirections.Input)
-                return 2;
+                return kind == PluginKind.Instrument ? 0 : 2;
+
             if (direction == BusDirections.Output)
                 return 1;
+
             return 0;
         }
 
         if (mediaType == MediaTypes.Event)
-            return direction == BusDirections.Input ? 1 : 0;
+            return kind == PluginKind.Instrument && direction == BusDirections.Input ? 1 : 0;
 
         return 0;
     }
@@ -195,6 +199,8 @@ internal unsafe sealed class PluginComponent : ComObject
         if (info == null || index < 0)
             return Result.InvalidArgument;
 
+        var kind = Self<PluginComponent>(self)._descriptor.Kind;
+
         info->MediaType = mediaType;
         info->Direction = direction;
         info->BusType = BusTypes.Main;
@@ -204,6 +210,9 @@ internal unsafe sealed class PluginComponent : ComObject
         {
             if (direction == BusDirections.Input)
             {
+                if (kind == PluginKind.Instrument)
+                    return Result.InvalidArgument;
+
                 if (index == 0)
                 {
                     info->ChannelCount = 2;
@@ -233,7 +242,8 @@ internal unsafe sealed class PluginComponent : ComObject
             return Result.InvalidArgument;
         }
 
-        if (mediaType == MediaTypes.Event && direction == BusDirections.Input && index == 0)
+        if (mediaType == MediaTypes.Event && kind == PluginKind.Instrument &&
+            direction == BusDirections.Input && index == 0)
         {
             info->ChannelCount = 16;
             info->SetName("MIDI In");
@@ -304,6 +314,9 @@ internal unsafe sealed class PluginComponent : ComObject
         if (numOuts != 1 || outputs == null || (outputs[0] & 3UL) != 3UL)
             return Result.False;
 
+        if (Self<PluginComponent>(self)._descriptor.Kind == PluginKind.Instrument)
+            return numIns == 0 ? Result.Ok : Result.False;
+
         if (numIns < 1 || numIns > 2 || inputs == null || (inputs[0] & 3UL) != 3UL)
             return Result.False;
 
@@ -319,7 +332,9 @@ internal unsafe sealed class PluginComponent : ComObject
         if (arrangement == null)
             return Result.InvalidArgument;
 
-        if (direction == BusDirections.Input && (index == 0 || index == 1))
+        var kind = Self<PluginComponent>(self)._descriptor.Kind;
+
+        if (kind == PluginKind.Effect && direction == BusDirections.Input && (index == 0 || index == 1))
         {
             *arrangement = 3UL;
             return Result.Ok;

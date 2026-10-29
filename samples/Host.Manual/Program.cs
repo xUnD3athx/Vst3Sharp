@@ -2,9 +2,13 @@ using System.Runtime.InteropServices;
 using Host.Manual;
 using Vst3.Interop;
 
+if (args.Length >= 2 && args[0] == "synth")
+    return SynthTest.Run(args[1]);
+
 if (args.Length < 1)
 {
     Console.Error.WriteLine("usage: Host.Manual <path-to-plugin.vst3>");
+    Console.Error.WriteLine("       Host.Manual synth <path-to-instrument.vst3>");
     return 1;
 }
 
@@ -170,39 +174,16 @@ unsafe
                 setActive(component, 1);
                 setProcessing(processor, 1);
 
-                var events = NativeEventList.Create();
-
                 Console.WriteLine("block 1: passthrough");
                 BlockRunner.Run(process, processor, 0.8f, 0.4f);
 
                 Console.WriteLine("block 1b: sidechain signal present, SC Amount still 0 (must stay unity)");
-                BlockRunner.Run(process, processor, 0.8f, 0.4f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
+                BlockRunner.Run(process, processor, 0.8f, 0.4f, withSidechain: true, sidechain: 0.8f);
 
-                Event noteOn = default;
-                noteOn.Type = EventTypes.NoteOn;
-                noteOn.NoteOn.Channel = 0;
-                noteOn.NoteOn.Pitch = 60;
-                noteOn.NoteOn.Velocity = 0.5f;
-                noteOn.NoteOn.NoteId = -1;
-                events.Add(noteOn);
-                Console.WriteLine("block 2: MIDI note-on velocity 0.5");
-                BlockRunner.Run(process, processor, 0.8f, 0.2f, events: events.Pointer);
-
-                events.Clear();
-                Event noteOff = default;
-                noteOff.Type = EventTypes.NoteOff;
-                noteOff.NoteOff.Channel = 0;
-                noteOff.NoteOff.Pitch = 60;
-                noteOff.NoteOff.NoteId = -1;
-                events.Add(noteOff);
-                Console.WriteLine("block 3: MIDI note-off");
-                BlockRunner.Run(process, processor, 0.8f, 0.4f, events: events.Pointer);
-
-                events.Clear();
                 activateBus(component, MediaTypes.Audio, BusDirections.Input, 1, 1);
                 setParamNormalized(controller, 1, 0.8);
                 Console.WriteLine("block 4: sidechain level 0.8, SC Amount 0.8");
-                BlockRunner.Run(process, processor, 0.8f, 0.144f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
+                BlockRunner.Run(process, processor, 0.8f, 0.144f, withSidechain: true, sidechain: 0.8f);
 
                 Console.WriteLine("block 5: automation via IParameterChanges (gain 0.25)");
                 setParamNormalized(controller, 1, 0.0);
@@ -224,8 +205,6 @@ unsafe
                 bool statePass = Math.Abs(gainAfter - 0.25) < 1e-9 && Math.Abs(scAfter - 0.8) < 1e-9;
                 Console.WriteLine(
                     $"getState=0x{saveHr:X8} setState=0x{loadHr:X8} gain={gainAfter:0.000} sc={scAfter:0.000} -> {(statePass ? "PASS" : "FAIL")}");
-
-                events.Release();
 
                 setProcessing(processor, 0);
                 setActive(component, 0);
