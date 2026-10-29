@@ -8,11 +8,11 @@ internal sealed unsafe class GainProcessor : AudioProcessor
 {
     public override void Process(in ProcessContext context)
     {
-        int samples = context.SampleCount;
-        if (samples <= 0)
+        var output = context.Output(0);
+        if (output.ChannelCount == 0)
             return;
 
-        double gain = Parameters.GetNormalized(0) * 2.0;
+        float gain = (float)(Parameters.GetNormalized(0) * 2.0);
         double sidechainAmount = Parameters.GetNormalized(1);
 
         double midiGate = 1.0;
@@ -26,65 +26,37 @@ internal sealed unsafe class GainProcessor : AudioProcessor
         }
 
         double duck = 1.0;
-        if (sidechainAmount > 0.0 && context.InputBusCount > 1 && context.Inputs != null &&
-            context.Inputs[1].NumChannels > 0)
+        var sidechain = context.Input(1);
+        if (sidechainAmount > 0.0 && sidechain.ChannelCount > 0)
         {
             float peak = 0.0f;
-            for (int channel = 0; channel < context.Inputs[1].NumChannels; channel++)
+            for (int channel = 0; channel < sidechain.ChannelCount; channel++)
             {
-                float* samplesPtr = context.Inputs[1].ChannelBuffers32[channel];
-                for (int i = 0; i < samples; i++)
+                var samples = sidechain[channel];
+                for (int i = 0; i < samples.Length; i++)
                 {
-                    float value = samplesPtr[i];
-                    if (value < 0.0f)
-                        value = -value;
+                    float value = MathF.Abs(samples[i]);
                     if (value > peak)
                         peak = value;
                 }
             }
 
-            if (peak > 1.0f)
-                peak = 1.0f;
-
-            duck = 1.0 - sidechainAmount * peak;
+            duck = 1.0 - sidechainAmount * Math.Min(1.0, peak);
         }
 
         float totalGain = (float)(gain * midiGate * duck);
-
-        if (context.Outputs == null || context.OutputBusCount == 0)
-            return;
-
-        int outChannels = context.Outputs[0].NumChannels;
-        float** outPointers = context.Outputs[0].ChannelBuffers32;
-
-        if (context.Inputs == null || context.InputBusCount == 0)
-        {
-            for (int channel = 0; channel < outChannels; channel++)
-            {
-                float* destination = outPointers[channel];
-                for (int i = 0; i < samples; i++)
-                    destination[i] = 0.0f;
-            }
-
-            return;
-        }
-
-        int channels = Math.Min(context.Inputs[0].NumChannels, outChannels);
-        float** inPointers = context.Inputs[0].ChannelBuffers32;
+        var input = context.Input(0);
+        int channels = Math.Min(input.ChannelCount, output.ChannelCount);
 
         for (int channel = 0; channel < channels; channel++)
         {
-            float* source = inPointers[channel];
-            float* destination = outPointers[channel];
-            for (int i = 0; i < samples; i++)
+            var source = input[channel];
+            var destination = output[channel];
+            for (int i = 0; i < destination.Length; i++)
                 destination[i] = source[i] * totalGain;
         }
 
-        for (int channel = channels; channel < outChannels; channel++)
-        {
-            float* destination = outPointers[channel];
-            for (int i = 0; i < samples; i++)
-                destination[i] = 0.0f;
-        }
+        for (int channel = channels; channel < output.ChannelCount; channel++)
+            output[channel].Clear();
     }
 }
