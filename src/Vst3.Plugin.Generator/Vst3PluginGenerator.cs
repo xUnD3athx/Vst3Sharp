@@ -70,6 +70,22 @@ public sealed class Vst3PluginGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor BadEditorType = new(
+        "VST3007",
+        "[VstPlugin] editor must derive from EditorView",
+        "'{0}' is not a Vst3.Editor.EditorView",
+        "Vst3.Plugin.Generator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor EditorNeedsDefaultConstructor = new(
+        "VST3008",
+        "[VstPlugin] editor needs a public parameterless constructor",
+        "'{0}' must declare a public parameterless constructor",
+        "Vst3.Plugin.Generator",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         IncrementalValuesProvider<PluginModel?> models = context.SyntaxProvider
@@ -115,6 +131,15 @@ public sealed class Vst3PluginGenerator : IIncrementalGenerator
         bool isInstrument = kind == 1;
         string? subCategories = GetNamedString(attribute, "SubCategories");
 
+        INamedTypeSymbol? editorType = GetNamedType(attribute, "Editor");
+        if (editorType is not null)
+        {
+            if (!DerivesFrom(editorType, "Vst3.Editor.EditorView"))
+                diagnostics.Add(Diagnostic.Create(BadEditorType, location, editorType.Name));
+            else if (!HasPublicParameterlessConstructor(editorType))
+                diagnostics.Add(Diagnostic.Create(EditorNeedsDefaultConstructor, location, editorType.Name));
+        }
+
         var model = new PluginModel
         {
             FullTypeName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
@@ -129,6 +154,7 @@ public sealed class Vst3PluginGenerator : IIncrementalGenerator
             Version = GetNamedString(attribute, "Version") ?? "1.0.0",
             SubCategories = subCategories ?? (isInstrument ? "Instrument|Synth" : "Fx"),
             IsInstrument = isInstrument,
+            EditorType = editorType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             ClassId = CreateClassId(pluginName, GetNamedString(attribute, "Vendor") ?? "Unknown"),
             Parameters = ExtractParameters(type, diagnostics),
             Diagnostics = diagnostics.ToImmutableArray(),
@@ -253,6 +279,28 @@ public sealed class Vst3PluginGenerator : IIncrementalGenerator
         }
 
         return true;
+    }
+
+    private static bool HasPublicParameterlessConstructor(INamedTypeSymbol type)
+    {
+        foreach (IMethodSymbol constructor in type.InstanceConstructors)
+        {
+            if (constructor.Parameters.Length == 0 && constructor.DeclaredAccessibility == Accessibility.Public)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static INamedTypeSymbol? GetNamedType(AttributeData attribute, string name)
+    {
+        foreach (KeyValuePair<string, TypedConstant> argument in attribute.NamedArguments)
+        {
+            if (argument.Key == name && argument.Value.Value is INamedTypeSymbol type)
+                return type;
+        }
+
+        return null;
     }
 
     private static bool DerivesFrom(INamedTypeSymbol type, string baseTypeName)

@@ -2,7 +2,8 @@ using Vst3;
 
 namespace Plugin.SineSynth;
 
-[VstPlugin("SineSynth", Vendor = "UnD3ath", Url = "https://example.invalid", Email = "dev@example.invalid", Kind = PluginKind.Instrument)]
+[VstPlugin("SineSynth", Vendor = "UnD3ath", Url = "https://example.invalid", Email = "dev@example.invalid",
+    Kind = PluginKind.Instrument, Editor = typeof(SineSynthEditor))]
 public sealed partial class SineSynthPlugin : AudioPlugin
 {
     private const int MaxVoices = 16;

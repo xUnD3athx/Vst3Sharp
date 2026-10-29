@@ -85,7 +85,9 @@ internal static class PluginEmitter
             "Kind: global::Vst3.PluginKind." + (model.IsInstrument ? "Instrument" : "Effect"),
         };
 
-        if (hasEditor)
+        if (model.EditorType is not null)
+            arguments.Add("ViewFactory: new global::Vst3.Editor.ImGuiEditorFactory<" + model.EditorType + ">()");
+        else if (hasEditor)
             arguments.Add("ViewFactory: new global::Vst3.Editor.ImGuiEditorFactory()");
 
         Line(sb, indent, "public static unsafe class Vst3Module");

@@ -99,7 +99,7 @@ double ToNormalized(int index, double plain);
 
 ## 特性
 
-`[VstPlugin(name)]`：`Vendor`、`Version`、`Url`、`Email`、`SubCategories`、`Kind`。
+`[VstPlugin(name)]`：`Vendor`、`Version`、`Url`、`Email`、`SubCategories`、`Kind`、`Editor`。
 
 `[Parameter(name)]`：`ShortTitle`、`Unit`、`Min`、`Max`、`Default`、`Steps`、`CanAutomate`。
 
@@ -115,6 +115,8 @@ double ToNormalized(int index, double plain);
 | VST3004 | 类没有标 `partial` |
 | VST3005 | 泛型类或嵌套类 |
 | VST3006 | `[Parameter]` 字段是 static |
+| VST3007 | `Editor` 指定的类型没有继承 `EditorView` |
+| VST3008 | `Editor` 指定的类型没有公共无参构造 |
 
 ## 生成的模块代码
 
@@ -123,7 +125,7 @@ double ToNormalized(int index, double plain);
 - 类 GUID 由 `SHA-256("Vst3Sharp/" + Vendor + "/" + Name)` 派生，`Vendor` 或 `Name` 改了 GUID 就变。
 - `SubCategories` 未指定时，`Effect` 用 `Fx`，`Instrument` 用 `Instrument|Synth`。
 - 模块导出 `GetPluginFactory`、`InitDll`、`ExitDll`。
-- 引用了 `Vst3.Editor.ImGui` 时自动设置 `ViewFactory`，否则插件没有编辑器。
+- 引用了 `Vst3.Editor.ImGui` 时自动设置 `ViewFactory`；写了 `Editor = typeof(...)` 则改用作者的编辑器，否则插件没有编辑器。
 
 ## 逃生口：手写 PluginDescriptor
 
@@ -143,22 +145,39 @@ var descriptor = new PluginDescriptor(
 
 ## 编辑器
 
-```csharp
-public interface IPluginViewFactory
-{
-    nint CreateView(PluginViewContext context);   // 返回 IPlugView*
-}
+不写 `Editor` 时用默认面板：一个参数一行，左边标题，右边滑杆，下面显示工程值和单位。
 
-public sealed class PluginViewContext
+自定义编辑器继承 `EditorView`，在 `[VstPlugin]` 里指定：
+
+```csharp
+[VstPlugin("MySynth", Vendor = "Acme", Editor = typeof(MyEditor))]
+public sealed partial class MyPlugin : AudioPlugin { ... }
+
+public sealed class MyEditor : EditorView
 {
-    ParameterCollection Parameters;
-    Action<uint, double> SetParameter;            // 写参数并通知宿主（performEdit）
-    Action<uint> BeginEdit, EndEdit;              // 拖动开始/结束
-    int Width = 520, Height = 320;
+    public override void OnRender(UiCanvas ui)
+    {
+        ui.Rect(0, 0, ui.Width, ui.Height, new UiColor(24, 24, 28));
+        ui.Circle(80, 80, 40, new UiColor(64, 132, 220));
+        ui.Text(24, 140, "Hello", new UiColor(230, 230, 236), 18);
+    }
+
+    public override void OnPointerDown(in UiPointerEvent e) { /* 命中测试 */ }
+    public override void OnPointerMove(in UiPointerEvent e) { }
+    public override void OnPointerUp(in UiPointerEvent e) { }
 }
 ```
 
-自定义编辑器实现 `IPluginViewFactory` 并通过 `PluginDescriptor.ViewFactory` 接入。默认实现是 `Vst3.Editor.ImGuiEditorFactory`，把所有参数画成滑杆。
+`EditorView` 提供：
+
+- `Parameters`、`SetParameter(id, normalized)`、`BeginEdit(id)`、`EndEdit(id)`。
+- `Input`：`MousePosition`、`IsDown(UiMouseButton)`、`Modifiers`、`WheelDelta`。
+- 回调：`OnRender`、`OnPointerDown/Up/Move`、`OnWheel`、`OnKey`、`OnText`、`OnFocusChanged`、`OnResize`。
+- `UiCanvas`：`Rect`、`RoundRect`、`RectOutline`、`Circle`、`Line`、`Text`、`MeasureText`、`PushClip` / `PopClip`。
+
+坐标是视区物理像素。事件是只读值类型；从按下到抬起框架保持鼠标捕获，拖出窗口也能收到 Move。Move 不带按键状态，需要时查 `Input.IsDown`。没有控件树，命中测试、布局和焦点由作者负责。键盘事件只做了常用键映射，IME 未实现。
+
+底层仍可自己实现 `IPluginViewFactory`（`nint CreateView(PluginViewContext context)`，返回任意 `IPlugView*`），但要自己处理窗口、输入和渲染。
 
 ## 限制
 

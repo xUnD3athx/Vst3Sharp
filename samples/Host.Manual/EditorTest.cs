@@ -8,6 +8,10 @@ internal static unsafe class EditorTest
 {
     private const uint WS_POPUP = 0x80000000;
     private const uint PM_REMOVE = 0x0001;
+    private const uint WM_MOUSEMOVE = 0x0200;
+    private const uint WM_LBUTTONDOWN = 0x0201;
+    private const uint WM_LBUTTONUP = 0x0202;
+    private const int GW_CHILD = 5;
 
     public static int Run(string path)
     {
@@ -73,6 +77,7 @@ internal static unsafe class EditorTest
 
             nint* controllerVt = Vtable.Of(controller);
             var releaseController = (delegate* unmanaged[Stdcall]<void*, uint>)controllerVt[2];
+            var getParamNormalized = (delegate* unmanaged[Stdcall]<void*, uint, double>)controllerVt[14];
             var createView = (delegate* unmanaged[Stdcall]<void*, byte*, void*>)controllerVt[17];
 
             nint namePtr = Marshal.StringToHGlobalAnsi("editor");
@@ -118,17 +123,20 @@ internal static unsafe class EditorTest
             int attachHr = attached(view, (void*)parent, (byte*)hwndType);
             Console.WriteLine($"isPlatformTypeSupported(HWND)=0x{supported:X8} attached=0x{attachHr:X8}");
 
-            var msg = new MSG();
-            for (int i = 0; i < 60; i++)
+            double before = getParamNormalized(controller, 0);
+            nint child = GetWindow(parent, GW_CHILD);
+            if (child != 0)
             {
-                while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE) != 0)
-                {
-                    TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-
-                Thread.Sleep(16);
+                // Drag the default slider row; click the custom knob.
+                Drag(child, 300, 70, 150);
+                Click(child, width / 2, (int)(height * 0.69));
             }
+
+            Pump(20);
+
+            double after = getParamNormalized(controller, 0);
+            bool inputPass = Math.Abs(after - before) > 0.01;
+            Console.WriteLine($"pointer input: {before:0.000} -> {after:0.000} -> {(inputPass ? "PASS" : "FAIL")}");
 
             removed(view);
             DestroyWindow(parent);
@@ -138,13 +146,49 @@ internal static unsafe class EditorTest
             releaseComponent(component);
             releaseFactory(factory);
 
-            bool pass = supported == Result.Ok && attachHr == Result.Ok && File.Exists(snapshot);
+            bool pass = supported == Result.Ok && attachHr == Result.Ok && inputPass && File.Exists(snapshot);
             Console.WriteLine($"editor snapshot: {snapshot} exists={File.Exists(snapshot)} -> {(pass ? "PASS" : "FAIL")}");
             return pass ? 0 : 8;
         }
         finally
         {
             NativeLibrary.Free(library);
+        }
+    }
+
+    private static void Click(nint hwnd, int x, int y)
+    {
+        nint position = (y << 16) | (x & 0xFFFF);
+        SendMessageW(hwnd, WM_MOUSEMOVE, 0, position);
+        SendMessageW(hwnd, WM_LBUTTONDOWN, 1, position);
+        Pump(2);
+        SendMessageW(hwnd, WM_LBUTTONUP, 0, position);
+        Pump(2);
+    }
+
+    private static void Drag(nint hwnd, int x, int y, int dx)
+    {
+        SendMessageW(hwnd, WM_MOUSEMOVE, 0, (y << 16) | (x & 0xFFFF));
+        SendMessageW(hwnd, WM_LBUTTONDOWN, 1, (y << 16) | (x & 0xFFFF));
+        Pump(2);
+        SendMessageW(hwnd, WM_MOUSEMOVE, 1, (y << 16) | ((x + dx) & 0xFFFF));
+        Pump(2);
+        SendMessageW(hwnd, WM_LBUTTONUP, 0, (y << 16) | ((x + dx) & 0xFFFF));
+        Pump(2);
+    }
+
+    private static void Pump(int frames)
+    {
+        var msg = new MSG();
+        for (int i = 0; i < frames; i++)
+        {
+            while (PeekMessageW(&msg, 0, 0, 0, PM_REMOVE) != 0)
+            {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            Thread.Sleep(16);
         }
     }
 
@@ -180,4 +224,10 @@ internal static unsafe class EditorTest
 
     [DllImport("user32.dll")]
     private static extern nint DispatchMessageW(MSG* msg);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetWindow(nint hwnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern nint SendMessageW(nint hwnd, uint message, nint wParam, nint lParam);
 }

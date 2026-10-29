@@ -21,6 +21,9 @@ public sealed class VstPluginAttribute : Attribute
     public string? SubCategories { get; set; }
 
     public PluginKind Kind { get; set; } = PluginKind.Effect;
+
+    /// <summary>Custom editor type deriving from <c>Vst3.Editor.EditorView</c>; default is the generic parameter panel.</summary>
+    public Type? Editor { get; set; }
 }
 
 /// <summary>Declares a <see cref="FloatParameter"/> field as an automatable parameter.</summary>

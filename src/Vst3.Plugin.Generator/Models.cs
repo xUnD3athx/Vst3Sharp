@@ -15,6 +15,7 @@ internal sealed class PluginModel
     public string Version = "";
     public string SubCategories = "";
     public bool IsInstrument;
+    public string? EditorType;
     public string ClassId = "";
     public ImmutableArray<ParameterModel> Parameters = ImmutableArray<ParameterModel>.Empty;
     public ImmutableArray<Diagnostic> Diagnostics = ImmutableArray<Diagnostic>.Empty;

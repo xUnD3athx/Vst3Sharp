@@ -59,7 +59,7 @@ public sealed partial class GainPlugin : AudioPlugin
 }
 ```
 
-The class has to be `partial`: the source generator adds parameter bindings to the same type. It also derives a stable class GUID from `Vendor/Name` and emits `GetPluginFactory`, `InitDll`, and `ExitDll`. If the project references `Vst3.Editor.ImGui`, the generic editor is attached automatically.
+The class has to be `partial`: the source generator adds parameter bindings to the same type. It also derives a stable class GUID from `Vendor/Name` and emits `GetPluginFactory`, `InitDll`, and `ExitDll`. If the project references `Vst3.Editor.ImGui`, the generic editor is attached automatically; `Editor = typeof(MyEditor)` replaces it with a custom `EditorView` that draws on `UiCanvas` and receives pointer events directly.
 
 `[VstPlugin]` takes `Vendor`, `Version`, `Url`, `Email`, `SubCategories`, and `Kind` (`Effect` or `Instrument`). `[Parameter]` takes `ShortTitle`, `Unit`, `Min`, `Max`, `Default`, `Steps`, and `CanAutomate`. Parameter fields must be instance `FloatParameter`s; they expose `Normalized` (0–1), `Value`, and `Linear`.
 

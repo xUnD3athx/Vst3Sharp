@@ -22,6 +22,7 @@ internal unsafe sealed class ImGuiPlugView : ComObject
     private static readonly object s_lock = new();
 
     private readonly PluginViewContext _context;
+    private readonly EditorView _editorView;
     private int _width;
     private int _height;
     private nint _hwnd;
@@ -32,6 +33,8 @@ internal unsafe sealed class ImGuiPlugView : ComObject
     private long _lastTick;
     private string? _snapshotPath;
     private bool _snapshotTaken;
+
+    private UiInput Input => _editorView.Input;
 
     static ImGuiPlugView()
     {
@@ -57,15 +60,17 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         });
     }
 
-    private ImGuiPlugView(PluginViewContext context)
+    private ImGuiPlugView(PluginViewContext context, EditorView editorView)
     {
         _context = context;
+        _editorView = editorView;
         _width = context.Width;
         _height = context.Height;
         Initialize(new nint[] { (nint)s_vtable });
     }
 
-    public static nint Create(PluginViewContext context) => (nint)new ImGuiPlugView(context).View(0);
+    public static nint Create(PluginViewContext context, EditorView editorView) =>
+        (nint)new ImGuiPlugView(context, editorView).View(0);
 
     private static nint* BuildVtable(nint[] entries)
     {
@@ -148,6 +153,7 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         io.NativePtr->IniFilename = null;
         io.DisplaySize = new Vector2(view._width, view._height);
         view._renderer = new SkiaRenderer(view._width, view._height, io.Fonts);
+        view._editorView.Attach(view._context, view._width, view._height);
         view._lastTick = Stopwatch.GetTimestamp();
 
         Win32.SetTimer(view._hwnd, TimerId, 16, 0);
@@ -159,6 +165,7 @@ internal unsafe sealed class ImGuiPlugView : ComObject
     private static int Removed(void* self)
     {
         var view = Self<ImGuiPlugView>(self);
+        view._editorView.Detach();
 
         if (view._hwnd != 0)
         {
@@ -230,6 +237,7 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         view._width = width;
         view._height = height;
         view._renderer?.Resize(width, height);
+        view._editorView.Resize(width, height);
         return Result.Ok;
     }
 
@@ -333,6 +341,7 @@ internal unsafe sealed class ImGuiPlugView : ComObject
                     _width = width;
                     _height = height;
                     _renderer?.Resize(width, height);
+                    _editorView.Resize(width, height);
                 }
 
                 return true;
@@ -340,68 +349,87 @@ internal unsafe sealed class ImGuiPlugView : ComObject
 
             case Win32.WM_MOUSEMOVE:
                 io.AddMousePosEvent(MouseX(lParam), MouseY(lParam));
+                DispatchPointer(UiPointerAction.Move, UiMouseButton.None, lParam);
                 return true;
 
             case Win32.WM_LBUTTONDOWN:
                 io.AddMousePosEvent(MouseX(lParam), MouseY(lParam));
                 io.AddMouseButtonEvent(0, true);
                 Win32.SetCapture(hwnd);
+                DispatchButton(UiMouseButton.Left, true, lParam);
                 return true;
 
             case Win32.WM_LBUTTONUP:
                 io.AddMouseButtonEvent(0, false);
                 Win32.ReleaseCapture();
+                DispatchButton(UiMouseButton.Left, false, lParam);
                 return true;
 
             case Win32.WM_RBUTTONDOWN:
                 io.AddMousePosEvent(MouseX(lParam), MouseY(lParam));
                 io.AddMouseButtonEvent(1, true);
                 Win32.SetCapture(hwnd);
+                DispatchButton(UiMouseButton.Right, true, lParam);
                 return true;
 
             case Win32.WM_RBUTTONUP:
                 io.AddMouseButtonEvent(1, false);
                 Win32.ReleaseCapture();
+                DispatchButton(UiMouseButton.Right, false, lParam);
                 return true;
 
             case Win32.WM_MBUTTONDOWN:
                 io.AddMousePosEvent(MouseX(lParam), MouseY(lParam));
                 io.AddMouseButtonEvent(2, true);
                 Win32.SetCapture(hwnd);
+                DispatchButton(UiMouseButton.Middle, true, lParam);
                 return true;
 
             case Win32.WM_MBUTTONUP:
                 io.AddMouseButtonEvent(2, false);
                 Win32.ReleaseCapture();
+                DispatchButton(UiMouseButton.Middle, false, lParam);
                 return true;
 
             case Win32.WM_MOUSEWHEEL:
             {
                 short delta = (short)((wParam >> 16) & 0xFFFF);
-                io.AddMouseWheelEvent(0.0f, delta / 120.0f);
+                float steps = delta / 120.0f;
+                io.AddMouseWheelEvent(0.0f, steps);
+                Input.SetModifiers(CurrentModifiers());
+                Input.SetWheel(steps);
+                var wheel = new UiWheelEvent(Input.MouseX, Input.MouseY, steps, Input.Modifiers);
+                _editorView.OnWheel(in wheel);
                 return true;
             }
 
             case Win32.WM_KEYDOWN:
                 UpdateModifiers(io);
-                io.AddKeyEvent(MapKey(wParam), true);
+                UpdateInputModifiers();
+                DispatchKey(wParam, true, (lParam & (1 << 30)) != 0);
+                io.AddKeyEvent(MapImGuiKey(wParam), true);
                 return true;
 
             case Win32.WM_KEYUP:
                 UpdateModifiers(io);
-                io.AddKeyEvent(MapKey(wParam), false);
+                UpdateInputModifiers();
+                DispatchKey(wParam, false, false);
+                io.AddKeyEvent(MapImGuiKey(wParam), false);
                 return true;
 
             case Win32.WM_CHAR:
                 io.AddInputCharacter((uint)wParam);
+                DispatchText((char)wParam);
                 return true;
 
             case Win32.WM_SETFOCUS:
                 io.AddFocusEvent(true);
+                _editorView.OnFocusChanged(true);
                 return true;
 
             case Win32.WM_KILLFOCUS:
                 io.AddFocusEvent(false);
+                _editorView.OnFocusChanged(false);
                 return true;
         }
 
@@ -415,7 +443,92 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         io.AddKeyEvent(ImGuiKey.ModAlt, (Win32.GetKeyState(Win32.VK_MENU) & 0x8000) != 0);
     }
 
-    private static ImGuiKey MapKey(nint virtualKey)
+    private void UpdateInputModifiers() => Input.SetModifiers(CurrentModifiers());
+
+    private void DispatchPointer(UiPointerAction action, UiMouseButton button, nint lParam)
+    {
+        float x = MouseX(lParam);
+        float y = MouseY(lParam);
+        Input.SetPointer(x, y);
+        UpdateInputModifiers();
+
+        var e = new UiPointerEvent(action, button, x, y, Input.Modifiers);
+        switch (action)
+        {
+            case UiPointerAction.Down:
+                _editorView.OnPointerDown(in e);
+                break;
+            case UiPointerAction.Up:
+                _editorView.OnPointerUp(in e);
+                break;
+            default:
+                _editorView.OnPointerMove(in e);
+                break;
+        }
+    }
+
+    private void DispatchButton(UiMouseButton button, bool down, nint lParam)
+    {
+        Input.SetButton(button, down);
+        DispatchPointer(down ? UiPointerAction.Down : UiPointerAction.Up, button, lParam);
+    }
+
+    private void DispatchKey(nint virtualKey, bool down, bool repeat)
+    {
+        int key = (int)virtualKey;
+        var e = new UiKeyEvent(MapUiKey(key), key, down, repeat, Input.Modifiers);
+        _editorView.OnKey(in e);
+    }
+
+    private void DispatchText(char c)
+    {
+        if (c >= 32 && c != 127)
+            _editorView.OnText(c);
+    }
+
+    private static UiModifiers CurrentModifiers()
+    {
+        UiModifiers modifiers = UiModifiers.None;
+        if ((Win32.GetKeyState(Win32.VK_SHIFT) & 0x8000) != 0)
+            modifiers |= UiModifiers.Shift;
+        if ((Win32.GetKeyState(Win32.VK_CONTROL) & 0x8000) != 0)
+            modifiers |= UiModifiers.Control;
+        if ((Win32.GetKeyState(Win32.VK_MENU) & 0x8000) != 0)
+            modifiers |= UiModifiers.Alt;
+        if ((Win32.GetKeyState(Win32.VK_LWIN) & 0x8000) != 0 || (Win32.GetKeyState(Win32.VK_RWIN) & 0x8000) != 0)
+            modifiers |= UiModifiers.Win;
+
+        return modifiers;
+    }
+
+    private static UiKey MapUiKey(int virtualKey)
+    {
+        if (virtualKey is >= 0x30 and <= 0x39)
+            return (UiKey)((int)UiKey.D0 + (virtualKey - 0x30));
+        if (virtualKey is >= 0x41 and <= 0x5A)
+            return (UiKey)((int)UiKey.A + (virtualKey - 0x41));
+
+        return virtualKey switch
+        {
+            0x20 => UiKey.Space,
+            0x1B => UiKey.Escape,
+            0x0D => UiKey.Enter,
+            0x09 => UiKey.Tab,
+            0x08 => UiKey.Backspace,
+            0x2E => UiKey.Delete,
+            0x25 => UiKey.Left,
+            0x27 => UiKey.Right,
+            0x26 => UiKey.Up,
+            0x28 => UiKey.Down,
+            0x24 => UiKey.Home,
+            0x23 => UiKey.End,
+            0x21 => UiKey.PageUp,
+            0x22 => UiKey.PageDown,
+            _ => UiKey.Unknown
+        };
+    }
+
+    private static ImGuiKey MapImGuiKey(nint virtualKey)
     {
         int key = (int)virtualKey;
         if (key is >= 0x30 and <= 0x39)
@@ -466,7 +579,20 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         io.DeltaTime = Math.Clamp(delta, 1.0f / 1000.0f, 0.25f);
 
         ImGui.NewFrame();
-        BuildUi();
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.SetNextWindowPos(Vector2.Zero);
+        ImGui.SetNextWindowSize(io.DisplaySize);
+        ImGui.Begin("##root",
+            ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoScrollWithMouse);
+
+        // Texture-based AA lines sample blank atlas texels in this custom renderer, so keep them vertex-colored.
+        ImDrawListPtr drawList = ImGui.GetWindowDrawList();
+        drawList.Flags &= ~ImDrawListFlags.AntiAliasedLinesUseTex;
+        _editorView.OnRender(new UiCanvas(drawList, _width, _height));
+        ImGui.End();
+        ImGui.PopStyleVar();
         ImGui.Render();
         _renderer.Render(ImGui.GetDrawData(), _hwnd);
 
@@ -481,40 +607,4 @@ internal unsafe sealed class ImGuiPlugView : ComObject
         }
     }
 
-    private void BuildUi()
-    {
-        var io = ImGui.GetIO();
-        ImGui.SetNextWindowPos(Vector2.Zero);
-        ImGui.SetNextWindowSize(io.DisplaySize);
-        ImGui.Begin("##root",
-            ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove |
-            ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoScrollbar |
-            ImGuiWindowFlags.NoScrollWithMouse);
-
-        ImGui.TextUnformatted("Vst3Sharp");
-        ImGui.Separator();
-
-        var parameters = _context.Parameters;
-        for (int i = 0; i < parameters.Count; i++)
-        {
-            var descriptor = parameters.GetDescriptor(i);
-            double normalized = parameters.GetNormalized(i);
-
-            ImGui.TextUnformatted(descriptor.Title);
-            ImGui.SameLine(150);
-            ImGui.SetNextItemWidth(-1);
-
-            string label = "##p" + descriptor.Id;
-            float sliderValue = (float)normalized;
-            if (ImGui.SliderFloat(label, ref sliderValue, 0.0f, 1.0f, "%.3f"))
-                _context.SetParameter(descriptor.Id, sliderValue);
-
-            if (ImGui.IsItemActivated())
-                _context.BeginEdit(descriptor.Id);
-            if (ImGui.IsItemDeactivatedAfterEdit())
-                _context.EndEdit(descriptor.Id);
-        }
-
-        ImGui.End();
-    }
 }

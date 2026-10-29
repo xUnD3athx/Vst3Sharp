@@ -59,7 +59,7 @@ public sealed partial class GainPlugin : AudioPlugin
 }
 ```
 
-类必须标 `partial`：生成器要把参数绑定写进同一个类型。它还会根据 `Vendor/Name` 派生稳定的类 GUID，并生成 `GetPluginFactory`、`InitDll`、`ExitDll` 三个导出。项目引用 `Vst3.Editor.ImGui` 时自动挂上通用编辑器。
+类必须标 `partial`：生成器要把参数绑定写进同一个类型。它还会根据 `Vendor/Name` 派生稳定的类 GUID，并生成 `GetPluginFactory`、`InitDll`、`ExitDll` 三个导出。项目引用 `Vst3.Editor.ImGui` 时自动挂上通用编辑器；写 `Editor = typeof(MyEditor)` 可以换成自己画的 `EditorView`。
 
 `[VstPlugin]` 接受 `Vendor`、`Version`、`Url`、`Email`、`SubCategories`、`Kind`（`Effect` 或 `Instrument`）。`[Parameter]` 接受 `ShortTitle`、`Unit`、`Min`、`Max`、`Default`、`Steps`、`CanAutomate`。参数必须是实例字段，类型为 `FloatParameter`，可读 `Normalized`（0–1）、`Value` 和 `Linear`。
 

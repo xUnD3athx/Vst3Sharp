@@ -33,6 +33,8 @@ internal static unsafe class Win32
     public const int VK_SHIFT = 0x10;
     public const int VK_CONTROL = 0x11;
     public const int VK_MENU = 0x12;
+    public const int VK_LWIN = 0x5B;
+    public const int VK_RWIN = 0x5C;
 
     public const uint SRCCOPY = 0x00CC0020;
     public const uint DIB_RGB_COLORS = 0;
