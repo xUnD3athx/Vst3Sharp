@@ -12,4 +12,5 @@ public sealed record PluginDescriptor(
     string Version = "1.0.0",
     IReadOnlyList<ParameterDescriptor>? Parameters = null,
     Func<AudioProcessor>? CreateProcessor = null,
-    PluginKind Kind = PluginKind.Effect);
+    PluginKind Kind = PluginKind.Effect,
+    IPluginViewFactory? ViewFactory = null);

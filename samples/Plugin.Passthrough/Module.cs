@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Vst3.Editor;
 using Vst3.Plugin;
 
 namespace Plugin.Passthrough;
@@ -19,7 +20,8 @@ public static unsafe class Module
             new(0, "Gain", "Gain", "x", Min: 0.0, Max: 2.0, Default: 1.0),
             new(1, "SC Amount", "SC", "%", Min: 0.0, Max: 100.0, Default: 0.0),
         },
-        CreateProcessor: static () => new GainProcessor());
+        CreateProcessor: static () => new GainProcessor(),
+        ViewFactory: new ImGuiEditorFactory());
 
     [UnmanagedCallersOnly(EntryPoint = "GetPluginFactory", CallConvs = new[] { typeof(CallConvStdcall) })]
     public static void* GetPluginFactory()

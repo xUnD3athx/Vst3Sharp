@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Vst3.Editor;
 using Vst3.Plugin;
 
 namespace Plugin.SineSynth;
@@ -19,7 +20,8 @@ public static unsafe class Module
             new(0, "Level", "Level", "", Min: 0.0, Max: 1.0, Default: 0.5),
         },
         CreateProcessor: static () => new SineSynthProcessor(),
-        Kind: PluginKind.Instrument);
+        Kind: PluginKind.Instrument,
+        ViewFactory: new ImGuiEditorFactory());
 
     [UnmanagedCallersOnly(EntryPoint = "GetPluginFactory", CallConvs = new[] { typeof(CallConvStdcall) })]
     public static void* GetPluginFactory()

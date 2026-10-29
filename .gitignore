@@ -15,3 +15,5 @@ TestResults/
 
 # 上游 SDK 只作为规范参考，不纳入本仓库
 vst3sdk/
+
+imgui.ini

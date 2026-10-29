@@ -196,6 +196,15 @@ public unsafe struct ProcessData
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct ViewRect
+{
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public unsafe struct ParameterInfo
 {
     public const int StringSize = 128;

@@ -5,10 +5,14 @@ using Vst3.Interop;
 if (args.Length >= 2 && args[0] == "synth")
     return SynthTest.Run(args[1]);
 
+if (args.Length >= 2 && args[0] == "editor")
+    return EditorTest.Run(args[1]);
+
 if (args.Length < 1)
 {
     Console.Error.WriteLine("usage: Host.Manual <path-to-plugin.vst3>");
     Console.Error.WriteLine("       Host.Manual synth <path-to-instrument.vst3>");
+    Console.Error.WriteLine("       Host.Manual editor <path-to-plugin.vst3>");
     return 1;
 }
 

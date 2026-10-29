@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Vst3.Editor.ImGui</RootNamespace>
+    <AssemblyName>Vst3.Editor.ImGui</AssemblyName>
+    <Description>ImGui editor for Vst3Sharp plugins (software rendering via Skia).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
+    <PackageReference Include="SkiaSharp" Version="3.*" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Vst3.Plugin\Vst3.Plugin.csproj" />
+  </ItemGroup>
+</Project>

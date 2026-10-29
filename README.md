@@ -2,16 +2,17 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S5 —— Effect 与 Instrument 两类插件、通用作者 API、MIDI 事件、Sidechain、状态存取、自动化输入、`.vst3` bundle 打包。
+状态：S6 —— Effect 与 Instrument、通用作者 API、MIDI、Sidechain、状态、自动化、ImGui 编辑器（Skia 软件渲染）、`.vst3` bundle。
 
 ## 结构
 
 ```
 src/Vst3.Interop               ABI 基础：TUID、结构体、vtable、结果码
 src/Vst3.Plugin                框架：工厂、合并式组件、参数/状态/自动化/事件、作者 API
+src/Vst3.Editor.ImGui         编辑器：IPlugView + ImGui.NET + Skia 软件渲染 + GDI 贴图
 samples/Plugin.Passthrough     Effect 示例：Gain + SC Amount + Sidechain
 samples/Plugin.SineSynth       Instrument 示例：16 音正弦合成器（验证 MIDI）
-samples/Host.Manual            控制台宿主：effect 与 synth 两条离线测试路径
+samples/Host.Manual            控制台宿主：effect / synth / editor 三条离线测试路径
 ```
 
 ## 快速开始
@@ -29,6 +30,10 @@ dotnet run --project samples/Host.Manual -c Release -- \
 # Instrument：note-on 出声、note-off 释放
 dotnet run --project samples/Host.Manual -c Release -- synth \
   samples/Plugin.SineSynth/bin/Release/net10.0/win-x64/publish/SineSynth.vst3/Contents/x86_64-win/SineSynth.vst3
+
+# Editor：attach 到隐藏父窗口、渲染一帧并导出 PNG 快照
+dotnet run --project samples/Host.Manual -c Release -- editor \
+  samples/Plugin.Passthrough/bin/Release/net10.0/win-x64/publish/Passthrough.vst3/Contents/x86_64-win/Passthrough.vst3
 ```
 
 ## 在 FL Studio 里测试
@@ -41,8 +46,14 @@ C:\Program Files\Common Files\VST3\
 
 然后在 FL Studio 里重新扫描（Options → Manage plugins → Verify plugins）。
 
-- **Passthrough**（效果器）：Gain 拉到 0 应静音；SC Amount 默认 0（直通），调到 80% 并把另一条轨 Send 到 `Sidechain` 才会压低。effect 没有 MIDI 输入。
-- **SineSynth**（乐器）：在通道机架里作为乐器加载，弹 MIDI 键盘或画钢琴卷帘，应该听到正弦波；Level 控制音量。
+- **Passthrough**（效果器）：打开编辑器会看到 Gain / SC Amount 两个滑杆；Gain 拉到 0 应静音。effect 没有 MIDI 输入。
+- **SineSynth**（乐器）：作为乐器加载，弹 MIDI 键盘或画钢琴卷帘，应该听到正弦波；Level 控制音量。
+
+编辑器基于 ImGui + Skia 软件渲染，当前文本统一白色、使用默认像素字体，界面还会继续打磨。
+
+## 尚未实现
+
+自定义字体与文本颜色、DPI 缩放、预设文件格式、编辑器开关 100 次的内存回归。
 
 ## 作者 API
 

@@ -6,7 +6,7 @@ namespace Vst3.Plugin;
 /// Base for a native COM-style object presented through one or more vtable views.
 /// Layout per view: [vtable, GCHandle, base pointer].
 /// </summary>
-internal abstract unsafe class ComObject
+public abstract unsafe class ComObject
 {
     private const int HeaderSlots = 3;
 
@@ -40,9 +40,9 @@ internal abstract unsafe class ComObject
         return (T)handle.Target!;
     }
 
-    internal uint AddRefCore() => (uint)Interlocked.Increment(ref _refCount);
+    protected internal uint AddRefCore() => (uint)Interlocked.Increment(ref _refCount);
 
-    internal uint ReleaseCore()
+    protected internal uint ReleaseCore()
     {
         uint count = (uint)Interlocked.Decrement(ref _refCount);
         if (count == 0)

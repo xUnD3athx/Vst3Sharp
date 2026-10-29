@@ -23,6 +23,7 @@ internal unsafe sealed class PluginComponent : ComObject
     private readonly ParameterCollection _parameters;
     private readonly AudioProcessor _processor;
     private readonly Event[] _events = new Event[MaxEventsPerBlock];
+    private void* _componentHandler;
 
     static PluginComponent()
     {
@@ -529,10 +530,69 @@ internal unsafe sealed class PluginComponent : ComObject
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetComponentHandler(void* self, void* handler) => Result.Ok;
+    private static int SetComponentHandler(void* self, void* handler)
+    {
+        Self<PluginComponent>(self)._componentHandler = handler;
+        return Result.Ok;
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static void* CreateView(void* self, byte* name) => null;
+    private static void* CreateView(void* self, byte* name)
+    {
+        var instance = Self<PluginComponent>(self);
+        var factory = instance._descriptor.ViewFactory;
+        if (factory == null)
+            return null;
+
+        var context = new PluginViewContext
+        {
+            Parameters = instance._parameters,
+            SetParameter = (id, value) => SetParameterFromUi(instance, id, value),
+            BeginEdit = id => NotifyBeginEdit(instance, id),
+            EndEdit = id => NotifyEndEdit(instance, id),
+        };
+
+        try
+        {
+            return (void*)factory.CreateView(context);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void SetParameterFromUi(PluginComponent instance, uint id, double value)
+    {
+        instance._parameters.SetNormalized(id, value);
+
+        void* handler = instance._componentHandler;
+        if (handler == null)
+            return;
+
+        nint* vtable = *(nint**)handler;
+        ((delegate* unmanaged[Stdcall]<void*, uint, double, int>)vtable[4])(handler, id, value);
+    }
+
+    private static void NotifyBeginEdit(PluginComponent instance, uint id)
+    {
+        void* handler = instance._componentHandler;
+        if (handler == null)
+            return;
+
+        nint* vtable = *(nint**)handler;
+        ((delegate* unmanaged[Stdcall]<void*, uint, int>)vtable[3])(handler, id);
+    }
+
+    private static void NotifyEndEdit(PluginComponent instance, uint id)
+    {
+        void* handler = instance._componentHandler;
+        if (handler == null)
+            return;
+
+        nint* vtable = *(nint**)handler;
+        ((delegate* unmanaged[Stdcall]<void*, uint, int>)vtable[5])(handler, id);
+    }
 
     // ----- helpers -----
 
