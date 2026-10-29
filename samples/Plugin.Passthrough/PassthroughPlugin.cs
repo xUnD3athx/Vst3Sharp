@@ -1,24 +1,15 @@
 using Vst3;
-using Vst3.Plugin;
 
 namespace Plugin.Passthrough;
 
-public sealed class PassthroughPlugin : AudioPlugin
+[VstPlugin("Passthrough", Vendor = "UnD3ath", Url = "https://example.invalid", Email = "dev@example.invalid")]
+public sealed partial class PassthroughPlugin : AudioPlugin
 {
+    [Parameter("Gain", Unit = "x", Min = 0.0, Max = 2.0, Default = 1.0)]
     private readonly FloatParameter _gain = new();
+
+    [Parameter("SC Amount", ShortTitle = "SC", Unit = "%", Min = 0.0, Max = 100.0)]
     private readonly FloatParameter _sidechainAmount = new();
-
-    public override IReadOnlyList<ParameterDescriptor> DeclareParameters() => new ParameterDescriptor[]
-    {
-        new(0, "Gain", "Gain", "x", Min: 0.0, Max: 2.0, Default: 1.0),
-        new(1, "SC Amount", "SC", "%", Min: 0.0, Max: 100.0, Default: 0.0),
-    };
-
-    public override void BindParameters()
-    {
-        Bind(0, _gain);
-        Bind(1, _sidechainAmount);
-    }
 
     protected override void Process(AudioContext context)
     {

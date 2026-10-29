@@ -12,5 +12,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vst3.Plugin\Vst3.Plugin.csproj" />
     <ProjectReference Include="..\..\src\Vst3.Editor.ImGui\Vst3.Editor.ImGui.csproj" />
+    <ProjectReference Include="..\..\src\Vst3.Plugin.Generator\Vst3.Plugin.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

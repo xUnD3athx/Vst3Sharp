@@ -1,9 +1,9 @@
 using Vst3;
-using Vst3.Plugin;
 
 namespace Plugin.SineSynth;
 
-public sealed class SineSynthPlugin : AudioPlugin
+[VstPlugin("SineSynth", Vendor = "UnD3ath", Url = "https://example.invalid", Email = "dev@example.invalid", Kind = PluginKind.Instrument)]
+public sealed partial class SineSynthPlugin : AudioPlugin
 {
     private const int MaxVoices = 16;
     private const int TableSize = 2048;
@@ -13,7 +13,9 @@ public sealed class SineSynthPlugin : AudioPlugin
 
     private static readonly float[] SineTable = BuildTable();
 
+    [Parameter("Level", Min = 0.0, Max = 1.0, Default = 0.5)]
     private readonly FloatParameter _level = new();
+
     private readonly Voice[] _voices = new Voice[MaxVoices];
     private double _sampleRate = 48000.0;
     private int _nextVoice;
@@ -29,13 +31,6 @@ public sealed class SineSynthPlugin : AudioPlugin
         public float EnvelopeStep;
         public int EnvelopeDirection;
     }
-
-    public override IReadOnlyList<ParameterDescriptor> DeclareParameters() => new ParameterDescriptor[]
-    {
-        new(0, "Level", "Level", "", Min: 0.0, Max: 1.0, Default: 0.5),
-    };
-
-    public override void BindParameters() => Bind(0, _level);
 
     public override void OnSetup(double sampleRate, int maxBlockSize) => _sampleRate = sampleRate;
 

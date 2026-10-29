@@ -2,13 +2,14 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S6 —— Effect 与 Instrument、通用作者 API、MIDI、Sidechain、状态、自动化、ImGui 编辑器（Skia 软件渲染）、`.vst3` bundle。
+状态：S7 —— Effect 与 Instrument、作者 API v2（特性 + 源生成器）、MIDI、Sidechain、状态、自动化、ImGui 编辑器（Skia 软件渲染）、`.vst3` bundle。
 
 ## 结构
 
 ```
 src/Vst3.Interop               ABI 基础：TUID、结构体、vtable、结果码
 src/Vst3.Plugin                框架：工厂、合并式组件、参数/状态/自动化/事件、作者 API
+src/Vst3.Plugin.Generator      源生成器：特性 → 参数表 + 类 GUID + 模块导出
 src/Vst3.Editor.ImGui         编辑器：IPlugView + ImGui.NET + Skia 软件渲染 + GDI 贴图
 samples/Plugin.Passthrough     Effect 示例：Gain + SC Amount + Sidechain
 samples/Plugin.SineSynth       Instrument 示例：16 音正弦合成器（验证 MIDI）
@@ -57,27 +58,33 @@ C:\Program Files\Common Files\VST3\
 
 ## 作者 API
 
-```csharp
-static readonly PluginDescriptor Descriptor = new(
-    Name: "SineSynth", ClassId: ..., Kind: PluginKind.Instrument,
-    Parameters: new ParameterDescriptor[] { new(0, "Level", "Level", "", 0, 1, 0.5) },
-    CreateProcessor: static () => new SineSynthProcessor());
+一个类 + 两个特性，不写 `unsafe`、`[UnmanagedCallersOnly]`、描述符和 GUID：
 
-internal sealed class SineSynthProcessor : AudioProcessor
+```csharp
+using Vst3;
+
+[VstPlugin("Gain", Vendor = "Acme", Version = "1.0.0")]
+public sealed partial class GainPlugin : AudioPlugin
 {
-    public override void Process(in ProcessContext ctx)
+    [Parameter("Gain", Unit = "dB", Min = -24, Max = 24, Default = 0)]
+    private readonly FloatParameter _gain = new();
+
+    protected override void Process(AudioContext context)
     {
-        var output = ctx.Output(0);
-        // 读 ctx.Events / ctx.SampleCount，写 output[ch]
+        var output = context.Output(0);
+        foreach (var channel in output.Channels)
+        {
+            var input = context.Input[0][channel.Index];
+            for (int i = 0; i < channel.Length; i++)
+                channel[i] = input[i] * _gain.Linear;
+        }
     }
 }
 ```
 
+`partial` 是唯一的额外要求：源生成器要在同一个类里补上 `DeclareParameters` / `BindParameters`。它还会根据 `Vendor/Name` 派生稳定的类 GUID，并生成 `GetPluginFactory` / `InitDll` / `ExitDll` 导出；引用了 `Vst3.Editor.ImGui` 时自动接上通用参数编辑器。
+
 框架负责：ABI/vtable、总线布局（Effect / Instrument）、参数查询与自动化、事件解析、参数状态序列化。业务 DSP 全部在插件里。
-
-## 尚未实现
-
-编辑器（`IPlugView`）。
 
 ## 设计文档
 
