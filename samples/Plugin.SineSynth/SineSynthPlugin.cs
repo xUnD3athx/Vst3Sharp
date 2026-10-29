@@ -1,10 +1,9 @@
-using Vst3.Interop;
+using Vst3;
 using Vst3.Plugin;
 
 namespace Plugin.SineSynth;
 
-/// <summary>16-voice sine synth used to verify the MIDI event path.</summary>
-internal sealed unsafe class SineSynthProcessor : AudioProcessor
+public sealed class SineSynthPlugin : AudioPlugin
 {
     private const int MaxVoices = 16;
     private const int TableSize = 2048;
@@ -14,6 +13,7 @@ internal sealed unsafe class SineSynthProcessor : AudioProcessor
 
     private static readonly float[] SineTable = BuildTable();
 
+    private readonly FloatParameter _level = new();
     private readonly Voice[] _voices = new Voice[MaxVoices];
     private double _sampleRate = 48000.0;
     private int _nextVoice;
@@ -30,29 +30,32 @@ internal sealed unsafe class SineSynthProcessor : AudioProcessor
         public int EnvelopeDirection;
     }
 
-    public override void SetupProcessing(double sampleRate, int maxBlockSize)
+    public override IReadOnlyList<ParameterDescriptor> DeclareParameters() => new ParameterDescriptor[]
     {
-        _sampleRate = sampleRate;
-    }
+        new(0, "Level", "Level", "", Min: 0.0, Max: 1.0, Default: 0.5),
+    };
 
-    public override void Process(in ProcessContext context)
+    public override void BindParameters() => Bind(0, _level);
+
+    public override void OnSetup(double sampleRate, int maxBlockSize) => _sampleRate = sampleRate;
+
+    protected override void Process(AudioContext context)
     {
         var output = context.Output(0);
         if (output.ChannelCount == 0)
             return;
 
-        for (int i = 0; i < context.EventCount; i++)
+        foreach (var e in context.Events)
         {
-            Event e = context.Events[i];
-            if (e.Type == EventTypes.NoteOn)
-                NoteOn(e.NoteOn.Pitch, e.NoteOn.Velocity);
-            else if (e.Type == EventTypes.NoteOff)
-                NoteOff(e.NoteOff.Pitch);
+            if (e.IsNoteOn)
+                NoteOn(e.Pitch, e.Velocity);
+            else if (e.IsNoteOff)
+                NoteOff(e.Pitch);
         }
 
-        int samples = context.SampleCount;
         var mono = output[0];
         mono.Clear();
+        int samples = mono.Length;
 
         for (int v = 0; v < MaxVoices; v++)
         {
@@ -107,7 +110,7 @@ internal sealed unsafe class SineSynthProcessor : AudioProcessor
             }
         }
 
-        float level = (float)Parameters.GetNormalized(0);
+        float level = (float)_level.Value;
         if (level != 1.0f)
         {
             for (int i = 0; i < samples; i++)

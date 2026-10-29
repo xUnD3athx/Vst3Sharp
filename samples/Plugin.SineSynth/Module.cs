@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Vst3;
 using Vst3.Editor;
 using Vst3.Plugin;
 
@@ -15,11 +16,7 @@ public static unsafe class Module
         Email: "dev@example.invalid",
         SubCategories: "Instrument|Synth",
         Version: "1.0.0",
-        Parameters: new ParameterDescriptor[]
-        {
-            new(0, "Level", "Level", "", Min: 0.0, Max: 1.0, Default: 0.5),
-        },
-        CreateProcessor: static () => new SineSynthProcessor(),
+        CreatePlugin: static () => new SineSynthPlugin(),
         Kind: PluginKind.Instrument,
         ViewFactory: new ImGuiEditorFactory());
 

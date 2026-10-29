@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Vst3;
 using Vst3.Interop;
 
 namespace Vst3.Plugin;
@@ -22,8 +23,10 @@ internal unsafe sealed class PluginComponent : ComObject
 
     private readonly PluginDescriptor _descriptor;
     private readonly ParameterCollection _parameters;
-    private readonly AudioProcessor _processor;
+    private readonly AudioProcessor? _processor;
+    private readonly AudioPlugin? _plugin;
     private readonly Event[] _events = new Event[MaxEventsPerBlock];
+    private readonly MidiEvent[] _midiEvents = new MidiEvent[MaxEventsPerBlock];
     private void* _componentHandler;
 
     static PluginComponent()
@@ -95,12 +98,21 @@ internal unsafe sealed class PluginComponent : ComObject
     public PluginComponent(PluginDescriptor descriptor)
     {
         _descriptor = descriptor;
-        _parameters = new ParameterCollection(descriptor.Parameters ?? Array.Empty<ParameterDescriptor>());
+        _plugin = descriptor.CreatePlugin?.Invoke();
 
-        _processor = descriptor.CreateProcessor?.Invoke()
-            ?? throw new InvalidOperationException($"Plugin '{descriptor.Name}' has no processor factory.");
+        if (_plugin != null)
+        {
+            _parameters = new ParameterCollection(_plugin.DeclareParameters());
+            _plugin.Initialize(_parameters);
+        }
+        else
+        {
+            _parameters = new ParameterCollection(descriptor.Parameters ?? Array.Empty<ParameterDescriptor>());
+            _processor = descriptor.CreateProcessor?.Invoke()
+                ?? throw new InvalidOperationException($"Plugin '{descriptor.Name}' has no processor factory.");
+            _processor.Parameters = _parameters;
+        }
 
-        _processor.Parameters = _parameters;
         Initialize(new nint[]
         {
             (nint)s_componentVTable, (nint)s_processorVTable,
@@ -179,7 +191,12 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int Terminate(void* self)
     {
-        Self<PluginComponent>(self)._processor.Terminate();
+        var instance = Self<PluginComponent>(self);
+        if (instance._plugin != null)
+            instance._plugin.OnTerminate();
+        else
+            instance._processor?.Terminate();
+
         return Result.Ok;
     }
 
@@ -282,7 +299,12 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int SetActive(void* self, byte state)
     {
-        Self<PluginComponent>(self)._processor.SetActive(state != 0);
+        var instance = Self<PluginComponent>(self);
+        if (instance._plugin != null)
+            instance._plugin.OnActivated(state != 0);
+        else
+            instance._processor?.SetActive(state != 0);
+
         return Result.Ok;
     }
 
@@ -385,7 +407,17 @@ internal unsafe sealed class PluginComponent : ComObject
         if (setup->SymbolicSampleSize != SampleSizes.Sample32)
             return Result.False;
 
-        var processor = Self<PluginComponent>(self)._processor;
+        var instance = Self<PluginComponent>(self);
+        if (instance._plugin != null)
+        {
+            instance._plugin.OnSetup(setup->SampleRate, setup->MaxSamplesPerBlock);
+            return Result.Ok;
+        }
+
+        var processor = instance._processor;
+        if (processor == null)
+            return Result.Ok;
+
         processor.SampleRate = setup->SampleRate;
         processor.MaxBlockSize = setup->MaxSamplesPerBlock;
         processor.SetupProcessing(setup->SampleRate, setup->MaxSamplesPerBlock);
@@ -422,19 +454,38 @@ internal unsafe sealed class PluginComponent : ComObject
                         events[eventCount++] = e;
                 }
             }
+        }
 
-            var context = new ProcessContext
+        if (instance._plugin != null)
+        {
+            for (int i = 0; i < eventCount; i++)
+                instance._midiEvents[i] = MidiEvent.From(instance._events[i]);
+
+            fixed (MidiEvent* midi = instance._midiEvents)
             {
-                SampleCount = data->NumSamples,
-                InputBusCount = data->NumInputs,
-                OutputBusCount = data->NumOutputs,
-                Inputs = data->Inputs,
-                Outputs = data->Outputs,
-                Events = events,
-                EventCount = eventCount
-            };
+                var context = new AudioContext(
+                    data->NumSamples, data->Inputs, data->NumInputs,
+                    data->Outputs, data->NumOutputs, midi, eventCount);
+                instance._plugin.Run(in context);
+            }
+        }
+        else if (instance._processor != null)
+        {
+            fixed (Event* events = instance._events)
+            {
+                var context = new ProcessContext
+                {
+                    SampleCount = data->NumSamples,
+                    InputBusCount = data->NumInputs,
+                    OutputBusCount = data->NumOutputs,
+                    Inputs = data->Inputs,
+                    Outputs = data->Outputs,
+                    Events = events,
+                    EventCount = eventCount
+                };
 
-            instance._processor.Process(in context);
+                instance._processor.Process(in context);
+            }
         }
 
         return Result.Ok;

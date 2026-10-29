@@ -1,4 +1,4 @@
-namespace Vst3.Plugin;
+namespace Vst3;
 
 public enum PluginKind
 {

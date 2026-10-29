@@ -1,3 +1,5 @@
+using Vst3;
+
 namespace Vst3.Plugin;
 
 /// <summary>Static description of the plugin class exposed by a module.</summary>
@@ -13,4 +15,5 @@ public sealed record PluginDescriptor(
     IReadOnlyList<ParameterDescriptor>? Parameters = null,
     Func<AudioProcessor>? CreateProcessor = null,
     PluginKind Kind = PluginKind.Effect,
-    IPluginViewFactory? ViewFactory = null);
+    IPluginViewFactory? ViewFactory = null,
+    Func<AudioPlugin>? CreatePlugin = null);
