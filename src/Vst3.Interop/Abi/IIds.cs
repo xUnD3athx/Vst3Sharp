@@ -16,4 +16,5 @@ public static class IIds
     public static readonly Guid IPlugView = new("5BC32507-D060-49EA-A615-1B522B755B29");
     public static readonly Guid IBStream = new("C3BF6EA2-3099-4752-9B6B-F9901EE33E9B");
     public static readonly Guid IComponentHandler = new("93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6");
+    public static readonly Guid IEventList = new("3A2C4214-3463-49FE-B2C4-F397B9695A44");
 }

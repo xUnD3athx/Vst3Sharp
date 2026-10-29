@@ -23,6 +23,8 @@ internal unsafe sealed class PluginComponent : ComObject
     private byte _active;
     private byte _processing;
     private void* _componentHandler;
+    private double _midiGate = 1.0;
+    private byte _sidechainActive;
 
     static PluginComponent()
     {
@@ -163,35 +165,86 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetBusCount(void* self, int mediaType, int direction)
     {
-        if (mediaType != MediaTypes.Audio)
+        if (mediaType == MediaTypes.Audio)
+        {
+            if (direction == BusDirections.Input)
+                return 2;
+            if (direction == BusDirections.Output)
+                return 1;
             return 0;
+        }
 
-        return direction is BusDirections.Input or BusDirections.Output ? 1 : 0;
+        if (mediaType == MediaTypes.Event)
+            return direction == BusDirections.Input ? 1 : 0;
+
+        return 0;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetBusInfo(void* self, int mediaType, int direction, int index, BusInfo* info)
     {
-        if (info == null || mediaType != MediaTypes.Audio || index != 0)
-            return Result.InvalidArgument;
-
-        if (direction != BusDirections.Input && direction != BusDirections.Output)
+        if (info == null || index < 0)
             return Result.InvalidArgument;
 
         info->MediaType = mediaType;
         info->Direction = direction;
-        info->ChannelCount = 2;
         info->BusType = BusTypes.Main;
         info->Flags = BusFlags.DefaultActive;
-        info->SetName(direction == BusDirections.Input ? "Input" : "Output");
-        return Result.Ok;
+
+        if (mediaType == MediaTypes.Audio)
+        {
+            if (direction == BusDirections.Input)
+            {
+                if (index == 0)
+                {
+                    info->ChannelCount = 2;
+                    info->SetName("Input");
+                    return Result.Ok;
+                }
+
+                if (index == 1)
+                {
+                    info->ChannelCount = 2;
+                    info->BusType = BusTypes.Aux;
+                    info->Flags = 0;
+                    info->SetName("Sidechain");
+                    return Result.Ok;
+                }
+
+                return Result.InvalidArgument;
+            }
+
+            if (direction == BusDirections.Output && index == 0)
+            {
+                info->ChannelCount = 2;
+                info->SetName("Output");
+                return Result.Ok;
+            }
+
+            return Result.InvalidArgument;
+        }
+
+        if (mediaType == MediaTypes.Event && direction == BusDirections.Input && index == 0)
+        {
+            info->ChannelCount = 16;
+            info->SetName("MIDI In");
+            return Result.Ok;
+        }
+
+        return Result.InvalidArgument;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetRoutingInfo(void* self, void* inInfo, void* outInfo) => Result.NotImplemented;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int ActivateBus(void* self, int mediaType, int direction, int index, byte state) => Result.Ok;
+    private static int ActivateBus(void* self, int mediaType, int direction, int index, byte state)
+    {
+        if (mediaType == MediaTypes.Audio && direction == BusDirections.Input && index == 1)
+            Self<PluginComponent>(self)._sidechainActive = state;
+
+        return Result.Ok;
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int SetActive(void* self, byte state)
@@ -211,20 +264,37 @@ internal unsafe sealed class PluginComponent : ComObject
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int SetBusArrangements(void* self, ulong* inputs, int numIns, ulong* outputs, int numOuts)
     {
-        if (numIns != 1 || numOuts != 1 || inputs == null || outputs == null)
+        if (numOuts != 1 || outputs == null || (outputs[0] & 3UL) != 3UL)
             return Result.False;
 
-        return (inputs[0] & 3UL) == 3UL && (outputs[0] & 3UL) == 3UL ? Result.Ok : Result.False;
+        if (numIns < 1 || numIns > 2 || inputs == null || (inputs[0] & 3UL) != 3UL)
+            return Result.False;
+
+        if (numIns == 2 && inputs[1] != 0 && (inputs[1] & 3UL) != 3UL)
+            return Result.False;
+
+        return Result.Ok;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int GetBusArrangement(void* self, int direction, int index, ulong* arrangement)
     {
-        if (arrangement == null || index != 0)
+        if (arrangement == null)
             return Result.InvalidArgument;
 
-        *arrangement = 3UL;
-        return Result.Ok;
+        if (direction == BusDirections.Input && (index == 0 || index == 1))
+        {
+            *arrangement = 3UL;
+            return Result.Ok;
+        }
+
+        if (direction == BusDirections.Output && index == 0)
+        {
+            *arrangement = 3UL;
+            return Result.Ok;
+        }
+
+        return Result.InvalidArgument;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
@@ -271,7 +341,10 @@ internal unsafe sealed class PluginComponent : ComObject
             return Result.Ok;
 
         var instance = Self<PluginComponent>(self);
-        float gain = (float)(instance._gainNormalized * MaxGain);
+        ApplyEvents(data, instance);
+
+        float gain = (float)(instance._gainNormalized * MaxGain) * (float)instance._midiGate;
+        gain *= ComputeSidechainDuck(data);
 
         int outChannels = outputs[0].NumChannels;
         float** outPointers = outputs[0].ChannelBuffers32;
@@ -308,6 +381,66 @@ internal unsafe sealed class PluginComponent : ComObject
         }
 
         return Result.Ok;
+    }
+
+    private static void ApplyEvents(ProcessData* data, PluginComponent instance)
+    {
+        void* list = data->InputEvents;
+        if (list == null)
+            return;
+
+        nint* vtable = *(nint**)list;
+        var getEventCount = (delegate* unmanaged[Stdcall]<void*, int>)vtable[3];
+        var getEvent = (delegate* unmanaged[Stdcall]<void*, int, Event*, int>)vtable[4];
+
+        int count = getEventCount(list);
+        for (int i = 0; i < count; i++)
+        {
+            Event e = default;
+            if (getEvent(list, i, &e) != Result.Ok)
+                continue;
+
+            if (e.Type == EventTypes.NoteOn)
+                instance._midiGate = Math.Clamp(e.NoteOn.Velocity, 0.0f, 1.0f);
+            else if (e.Type == EventTypes.NoteOff)
+                instance._midiGate = 1.0;
+        }
+    }
+
+    private static float ComputeSidechainDuck(ProcessData* data)
+    {
+        if (data->NumInputs < 2)
+            return 1.0f;
+
+        AudioBusBuffers* inputs = data->Inputs;
+        if (inputs == null || inputs[1].NumChannels <= 0)
+            return 1.0f;
+
+        float** channels = inputs[1].ChannelBuffers32;
+        if (channels == null)
+            return 1.0f;
+
+        float peak = 0.0f;
+        for (int channel = 0; channel < inputs[1].NumChannels; channel++)
+        {
+            float* samples = channels[channel];
+            for (int i = 0; i < data->NumSamples; i++)
+            {
+                float value = samples[i];
+                if (value < 0.0f)
+                    value = -value;
+                if (value > peak)
+                    peak = value;
+            }
+        }
+
+        if (peak <= 0.0001f)
+            return 1.0f;
+
+        if (peak > 1.0f)
+            peak = 1.0f;
+
+        return 1.0f - 0.75f * peak;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]

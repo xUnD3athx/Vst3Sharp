@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Host.Manual;
 using Vst3.Interop;
 
 if (args.Length < 1)
@@ -92,6 +93,7 @@ unsafe
             var terminate = (delegate* unmanaged[Stdcall]<void*, int>)componentVt[4];
             var getBusCount = (delegate* unmanaged[Stdcall]<void*, int, int, int>)componentVt[7];
             var getBusInfo = (delegate* unmanaged[Stdcall]<void*, int, int, int, BusInfo*, int>)componentVt[8];
+            var activateBus = (delegate* unmanaged[Stdcall]<void*, int, int, int, byte, int>)componentVt[10];
             var setActive = (delegate* unmanaged[Stdcall]<void*, byte, int>)componentVt[11];
 
             Console.WriteLine($"initialize -> 0x{initialize(component, null):X8}");
@@ -160,55 +162,37 @@ unsafe
                 setActive(component, 1);
                 setProcessing(processor, 1);
 
-                const int frames = 128;
-                float[] inLeft = new float[frames];
-                float[] inRight = new float[frames];
-                float[] outLeft = new float[frames];
-                float[] outRight = new float[frames];
-                Array.Fill(inLeft, 0.8f);
-                Array.Fill(inRight, -0.8f);
+                var events = NativeEventList.Create();
 
-                fixed (float* pInLeft = inLeft, pInRight = inRight, pOutLeft = outLeft, pOutRight = outRight)
-                {
-                    float** inChannels = stackalloc float*[2];
-                    float** outChannels = stackalloc float*[2];
-                    inChannels[0] = pInLeft;
-                    inChannels[1] = pInRight;
-                    outChannels[0] = pOutLeft;
-                    outChannels[1] = pOutRight;
+                Console.WriteLine("block 1: passthrough");
+                BlockRunner.Run(process, processor, 0.8f, 0.4f);
 
-                    AudioBusBuffers inputBus = default;
-                    inputBus.NumChannels = 2;
-                    inputBus.ChannelBuffers32 = inChannels;
+                Event noteOn = default;
+                noteOn.Type = EventTypes.NoteOn;
+                noteOn.NoteOn.Channel = 0;
+                noteOn.NoteOn.Pitch = 60;
+                noteOn.NoteOn.Velocity = 0.5f;
+                noteOn.NoteOn.NoteId = -1;
+                events.Add(noteOn);
+                Console.WriteLine("block 2: MIDI note-on velocity 0.5");
+                BlockRunner.Run(process, processor, 0.8f, 0.2f, events: events.Pointer);
 
-                    AudioBusBuffers outputBus = default;
-                    outputBus.NumChannels = 2;
-                    outputBus.ChannelBuffers32 = outChannels;
+                events.Clear();
+                Event noteOff = default;
+                noteOff.Type = EventTypes.NoteOff;
+                noteOff.NoteOff.Channel = 0;
+                noteOff.NoteOff.Pitch = 60;
+                noteOff.NoteOff.NoteId = -1;
+                events.Add(noteOff);
+                Console.WriteLine("block 3: MIDI note-off");
+                BlockRunner.Run(process, processor, 0.8f, 0.4f, events: events.Pointer);
 
-                    ProcessData data = default;
-                    data.ProcessMode = ProcessModes.Realtime;
-                    data.SymbolicSampleSize = SampleSizes.Sample32;
-                    data.NumSamples = frames;
-                    data.NumInputs = 1;
-                    data.NumOutputs = 1;
-                    data.Inputs = &inputBus;
-                    data.Outputs = &outputBus;
+                events.Clear();
+                activateBus(component, MediaTypes.Audio, BusDirections.Input, 1, 1);
+                Console.WriteLine("block 4: sidechain level 0.8");
+                BlockRunner.Run(process, processor, 0.8f, 0.16f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
 
-                    int processHr = process(processor, &data);
-                    Console.WriteLine($"process -> 0x{processHr:X8} outL[0]={outLeft[0]:0.000} outR[0]={outRight[0]:0.000}");
-
-                    bool pass = true;
-                    for (int i = 0; i < frames; i++)
-                    {
-                        if (MathF.Abs(outLeft[i] - 0.4f) > 1e-5f || MathF.Abs(outRight[i] + 0.4f) > 1e-5f)
-                        {
-                            pass = false;
-                            break;
-                        }
-                    }
-
-                    Console.WriteLine($"gain check (expect +/-0.4) -> {(pass ? "PASS" : "FAIL")}");
-                }
+                events.Release();
 
                 setProcessing(processor, 0);
                 setActive(component, 0);

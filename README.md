@@ -2,7 +2,7 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S1 —— 合并式组件（component/processor/controller 一个对象）、1 进 1 出立体声、Gain 参数、`.vst3` bundle 打包。
+状态：S2 —— 合并式组件、1 进 1 出立体声、Gain 参数、MIDI 事件输入（音符门控）、Sidechain 辅助输入（侧链压低）、`.vst3` bundle 打包。
 
 ## 结构
 
@@ -23,7 +23,7 @@ dotnet run --project samples/Host.Manual -c Release -- \
   samples/Plugin.Passthrough/bin/Release/net10.0/win-x64/publish/Passthrough.vst3/Contents/x86_64-win/Passthrough.vst3
 ```
 
-预期输出包含 `bus counts`、`parameterCount -> 1`、`gain check (expect +/-0.4) -> PASS`。
+预期输出包含 `audio in=2`、`input[1] ... name="Sidechain"`、`parameterCount -> 1`，以及四个 `PASS`（直通、MIDI note-on、note-off、sidechain）。
 
 ## 在 FL Studio 里测试
 
@@ -35,9 +35,13 @@ C:\Program Files\Common Files\VST3\
 
 然后在 FL Studio 里重新扫描（Options → Manage plugins → Verify plugins）。
 
+- **Gain**：插件参数面板里拉到 0 应静音，拉回 1.0 恢复。
+- **Sidechain**：插件包装器的输入路由里把另一条轨 Send 到 `Sidechain`，主信号会随侧链电平被压低（最多 -75%）。
+- **MIDI**：FL 对效果器的 MIDI 路由支持有限；音符门控已在 `Host.Manual` 里验证（note-on velocity 缩放增益，note-off 恢复）。
+
 ## 尚未实现
 
-MIDI 事件、sidechain、状态存取、编辑器、自动化输入（`IParameterChanges`）。
+状态存取（保存/还原）、自动化输入（`IParameterChanges`）、编辑器（`IPlugView`）。
 
 ## 设计文档
 
