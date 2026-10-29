@@ -90,5 +90,6 @@ samples/Host.Manual           离线测试用的控制台宿主
 
 ## 文档
 
+- [插件 API 参考](api.md)
 - [设计文档与路线图](vst3-csharp-plan.md)
 - [English README](../README.md)

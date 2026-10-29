@@ -90,5 +90,6 @@ Copy the published `*.vst3` folders to `C:\Program Files\Common Files\VST3\` and
 
 ## Docs
 
+- [Plugin API reference](docs/api.md) (Chinese)
 - [Design notes and roadmap](docs/vst3-csharp-plan.md) (Chinese)
 - [中文说明](docs/README.zh-CN.md)
