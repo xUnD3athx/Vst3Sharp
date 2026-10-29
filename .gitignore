@@ -17,3 +17,6 @@ TestResults/
 vst3sdk/
 
 imgui.ini
+
+# VST3 SDK CMake build (internal validation tooling)
+build-sdk/

@@ -18,6 +18,7 @@ internal unsafe sealed class PluginComponent : ComObject
     private static nint* s_componentVTable;
     private static nint* s_processorVTable;
     private static nint* s_controllerVTable;
+    private static nint* s_contextVTable;
 
     private readonly PluginDescriptor _descriptor;
     private readonly ParameterCollection _parameters;
@@ -81,6 +82,14 @@ internal unsafe sealed class PluginComponent : ComObject
             (nint)(delegate* unmanaged[Stdcall]<void*, void*, int>)&SetComponentHandler,
             (nint)(delegate* unmanaged[Stdcall]<void*, byte*, void*>)&CreateView,
         });
+
+        s_contextVTable = BuildVtable(new nint[]
+        {
+            (nint)(delegate* unmanaged[Stdcall]<void*, Guid*, void**, int>)&QueryInterface,
+            (nint)(delegate* unmanaged[Stdcall]<void*, uint>)&AddRef,
+            (nint)(delegate* unmanaged[Stdcall]<void*, uint>)&Release,
+            (nint)(delegate* unmanaged[Stdcall]<void*, uint>)&GetProcessContextRequirements,
+        });
     }
 
     public PluginComponent(PluginDescriptor descriptor)
@@ -92,7 +101,11 @@ internal unsafe sealed class PluginComponent : ComObject
             ?? throw new InvalidOperationException($"Plugin '{descriptor.Name}' has no processor factory.");
 
         _processor.Parameters = _parameters;
-        Initialize(new nint[] { (nint)s_componentVTable, (nint)s_processorVTable, (nint)s_controllerVTable });
+        Initialize(new nint[]
+        {
+            (nint)s_componentVTable, (nint)s_processorVTable,
+            (nint)s_controllerVTable, (nint)s_contextVTable
+        });
     }
 
     private static nint* BuildVtable(nint[] entries)
@@ -121,6 +134,12 @@ internal unsafe sealed class PluginComponent : ComObject
         if (iid == IIds.IEditController)
         {
             view = View(2);
+            return true;
+        }
+
+        if (iid == IIds.IProcessContextRequirements)
+        {
+            view = View(3);
             return true;
         }
 
@@ -423,6 +442,9 @@ internal unsafe sealed class PluginComponent : ComObject
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static uint GetTailSamples(void* self) => 0;
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static uint GetProcessContextRequirements(void* self) => 0;
 
     // ----- IEditController -----
 

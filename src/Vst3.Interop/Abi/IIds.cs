@@ -19,4 +19,5 @@ public static class IIds
     public static readonly Guid IEventList = new("3A2C4214-3463-49FE-B2C4-F397B9695A44");
     public static readonly Guid IParameterChanges = new("A4779663-0BB6-4A56-B443-84A8466FEB9D");
     public static readonly Guid IParamValueQueue = new("01263A18-ED07-4F6F-98C9-D3564686F9BA");
+    public static readonly Guid IProcessContextRequirements = new("2A654303-EF76-4E3D-95B5-FE83730EF6D0");
 }
