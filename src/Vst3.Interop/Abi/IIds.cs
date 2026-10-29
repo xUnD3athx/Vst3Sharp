@@ -17,4 +17,6 @@ public static class IIds
     public static readonly Guid IBStream = new("C3BF6EA2-3099-4752-9B6B-F9901EE33E9B");
     public static readonly Guid IComponentHandler = new("93A0BEA3-0BD0-45DB-8E89-0B0CC1E46AC6");
     public static readonly Guid IEventList = new("3A2C4214-3463-49FE-B2C4-F397B9695A44");
+    public static readonly Guid IParameterChanges = new("A4779663-0BB6-4A56-B443-84A8466FEB9D");
+    public static readonly Guid IParamValueQueue = new("01263A18-ED07-4F6F-98C9-D3564686F9BA");
 }

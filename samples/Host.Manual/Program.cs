@@ -95,6 +95,8 @@ unsafe
             var getBusInfo = (delegate* unmanaged[Stdcall]<void*, int, int, int, BusInfo*, int>)componentVt[8];
             var activateBus = (delegate* unmanaged[Stdcall]<void*, int, int, int, byte, int>)componentVt[10];
             var setActive = (delegate* unmanaged[Stdcall]<void*, byte, int>)componentVt[11];
+            var setState = (delegate* unmanaged[Stdcall]<void*, void*, int>)componentVt[12];
+            var getState = (delegate* unmanaged[Stdcall]<void*, void*, int>)componentVt[13];
 
             Console.WriteLine($"initialize -> 0x{initialize(component, null):X8}");
 
@@ -201,6 +203,27 @@ unsafe
                 setParamNormalized(controller, 1, 0.8);
                 Console.WriteLine("block 4: sidechain level 0.8, SC Amount 0.8");
                 BlockRunner.Run(process, processor, 0.8f, 0.144f, events: events.Pointer, withSidechain: true, sidechain: 0.8f);
+
+                Console.WriteLine("block 5: automation via IParameterChanges (gain 0.25)");
+                setParamNormalized(controller, 1, 0.0);
+                var queue = NativeParamValueQueue.Create(0, 0, 0.125);
+                var changes = NativeParameterChanges.Create(queue.Pointer);
+                BlockRunner.Run(process, processor, 0.8f, 0.2f, changes: changes.Pointer);
+
+                Console.WriteLine("state roundtrip");
+                setParamNormalized(controller, 0, 0.25);
+                setParamNormalized(controller, 1, 0.8);
+                var stream = NativeMemoryStream.Create();
+                int saveHr = getState(component, stream.Pointer);
+                stream.Rewind();
+                setParamNormalized(controller, 0, 0.5);
+                setParamNormalized(controller, 1, 0.0);
+                int loadHr = setState(component, stream.Pointer);
+                double gainAfter = getParamNormalized(controller, 0);
+                double scAfter = getParamNormalized(controller, 1);
+                bool statePass = Math.Abs(gainAfter - 0.25) < 1e-9 && Math.Abs(scAfter - 0.8) < 1e-9;
+                Console.WriteLine(
+                    $"getState=0x{saveHr:X8} setState=0x{loadHr:X8} gain={gainAfter:0.000} sc={scAfter:0.000} -> {(statePass ? "PASS" : "FAIL")}");
 
                 events.Release();
 

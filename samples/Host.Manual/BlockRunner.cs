@@ -13,7 +13,8 @@ internal static unsafe class BlockRunner
         float expected,
         void* events = null,
         bool withSidechain = false,
-        float sidechain = 0.0f)
+        float sidechain = 0.0f,
+        void* changes = null)
     {
         float[] inLeft = new float[Frames];
         float[] inRight = new float[Frames];
@@ -70,6 +71,7 @@ internal static unsafe class BlockRunner
             data.Inputs = buses;
             data.Outputs = &outputBus;
             data.InputEvents = events;
+            data.InputParameterChanges = changes;
 
             int hr = process(processor, &data);
 

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,6 +12,8 @@ namespace Vst3.Plugin;
 /// </summary>
 internal unsafe sealed class PluginComponent : ComObject
 {
+    private const uint StateMagic = 0x31565350; // "PSV1"
+    private const int StateSize = 20;
     private const double MaxGain = 2.0;
 
     private static nint* s_componentVTable;
@@ -258,10 +261,56 @@ internal unsafe sealed class PluginComponent : ComObject
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetState(void* self, void* stream) => Result.NotImplemented;
+    private static int SetState(void* self, void* stream)
+    {
+        if (stream == null)
+            return Result.InvalidArgument;
+
+        byte* buffer = stackalloc byte[StateSize];
+        if (ReadStream(stream, buffer, StateSize) != StateSize)
+            return Result.False;
+
+        if (BinaryPrimitives.ReadUInt32LittleEndian(new Span<byte>(buffer, 4)) != StateMagic)
+            return Result.False;
+
+        var instance = Self<PluginComponent>(self);
+        instance._gainNormalized = Math.Clamp(
+            BinaryPrimitives.ReadDoubleLittleEndian(new Span<byte>(buffer + 4, 8)), 0.0, 1.0);
+        instance._sidechainAmount = Math.Clamp(
+            BinaryPrimitives.ReadDoubleLittleEndian(new Span<byte>(buffer + 12, 8)), 0.0, 1.0);
+        return Result.Ok;
+    }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetState(void* self, void* stream) => Result.NotImplemented;
+    private static int GetState(void* self, void* stream)
+    {
+        if (stream == null)
+            return Result.InvalidArgument;
+
+        var instance = Self<PluginComponent>(self);
+        byte* buffer = stackalloc byte[StateSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(new Span<byte>(buffer, 4), StateMagic);
+        BinaryPrimitives.WriteDoubleLittleEndian(new Span<byte>(buffer + 4, 8), instance._gainNormalized);
+        BinaryPrimitives.WriteDoubleLittleEndian(new Span<byte>(buffer + 12, 8), instance._sidechainAmount);
+
+        return WriteStream(stream, buffer, StateSize) == StateSize ? Result.Ok : Result.False;
+    }
+
+    private static int ReadStream(void* stream, void* buffer, int bytes)
+    {
+        nint* vtable = *(nint**)stream;
+        var read = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[3];
+        int readBytes = 0;
+        return read(stream, buffer, bytes, &readBytes) == Result.Ok ? readBytes : -1;
+    }
+
+    private static int WriteStream(void* stream, void* buffer, int bytes)
+    {
+        nint* vtable = *(nint**)stream;
+        var write = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[4];
+        int written = 0;
+        return write(stream, buffer, bytes, &written) == Result.Ok ? written : -1;
+    }
 
     // ----- IAudioProcessor -----
 
@@ -346,6 +395,7 @@ internal unsafe sealed class PluginComponent : ComObject
 
         var instance = Self<PluginComponent>(self);
         ApplyEvents(data, instance);
+        ApplyParameterChanges(data, instance);
 
         float gain = (float)(instance._gainNormalized * MaxGain) * (float)instance._midiGate;
         gain *= ComputeSidechainDuck(data, instance);
@@ -408,6 +458,47 @@ internal unsafe sealed class PluginComponent : ComObject
                 instance._midiGate = Math.Clamp(e.NoteOn.Velocity, 0.0f, 1.0f);
             else if (e.Type == EventTypes.NoteOff)
                 instance._midiGate = 1.0;
+        }
+    }
+
+    private static void ApplyParameterChanges(ProcessData* data, PluginComponent instance)
+    {
+        void* changes = data->InputParameterChanges;
+        if (changes == null)
+            return;
+
+        nint* vtable = *(nint**)changes;
+        var getParameterCount = (delegate* unmanaged[Stdcall]<void*, int>)vtable[3];
+        var getParameterData = (delegate* unmanaged[Stdcall]<void*, int, void*>)vtable[4];
+
+        int count = getParameterCount(changes);
+        for (int i = 0; i < count; i++)
+        {
+            void* queue = getParameterData(changes, i);
+            if (queue == null)
+                continue;
+
+            nint* queueVtable = *(nint**)queue;
+            var getParameterId = (delegate* unmanaged[Stdcall]<void*, uint>)queueVtable[3];
+            var getPointCount = (delegate* unmanaged[Stdcall]<void*, int>)queueVtable[4];
+            var getPoint = (delegate* unmanaged[Stdcall]<void*, int, int*, double*, int>)queueVtable[5];
+
+            int points = getPointCount(queue);
+            if (points <= 0)
+                continue;
+
+            int sampleOffset = 0;
+            double value = 0.0;
+            if (getPoint(queue, points - 1, &sampleOffset, &value) != Result.Ok)
+                continue;
+
+            uint id = getParameterId(queue);
+            double clamped = Math.Clamp(value, 0.0, 1.0);
+
+            if (id == GainParameterId)
+                instance._gainNormalized = clamped;
+            else if (id == SidechainAmountParameterId)
+                instance._sidechainAmount = clamped;
         }
     }
 

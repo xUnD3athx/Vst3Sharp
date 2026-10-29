@@ -2,7 +2,7 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S2.1 —— 合并式组件、1 进 1 出立体声、Gain 与 SC Amount 参数、MIDI 事件输入（音符门控）、Sidechain 辅助输入（默认关闭，由 SC Amount 开启）、`.vst3` bundle 打包。
+状态：S3 —— 合并式组件、立体声、Gain / SC Amount 参数、MIDI 事件、Sidechain、状态存取、自动化输入（`IParameterChanges`）、`.vst3` bundle 打包。
 
 ## 结构
 
@@ -23,7 +23,7 @@ dotnet run --project samples/Host.Manual -c Release -- \
   samples/Plugin.Passthrough/bin/Release/net10.0/win-x64/publish/Passthrough.vst3/Contents/x86_64-win/Passthrough.vst3
 ```
 
-预期输出包含 `audio in=2`、`input[1] ... name="Sidechain"`、`parameterCount -> 1`，以及四个 `PASS`（直通、MIDI note-on、note-off、sidechain）。
+预期输出包含 `audio in=2`、`input[1] ... name="Sidechain"`、`parameterCount -> 2`、五个音频块 `PASS`，以及 `state roundtrip ... PASS`。
 
 ## 在 FL Studio 里测试
 
@@ -41,7 +41,7 @@ C:\Program Files\Common Files\VST3\
 
 ## 尚未实现
 
-状态存取（保存/还原）、自动化输入（`IParameterChanges`）、编辑器（`IPlugView`）。
+编辑器（`IPlugView`）。
 
 ## 设计文档
 
