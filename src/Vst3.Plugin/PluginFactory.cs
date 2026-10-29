@@ -135,7 +135,7 @@ internal unsafe sealed class PluginFactory
         if (descriptor == null || *cid != descriptor.ClassId)
             return Result.InvalidArgument;
 
-        var component = new PluginComponent();
+        var component = new PluginComponent(descriptor);
         if (!component.TryGetView(*iid, out void* view))
         {
             component.ReleaseCore();

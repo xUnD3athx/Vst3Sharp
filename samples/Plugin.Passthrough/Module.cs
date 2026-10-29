@@ -13,7 +13,13 @@ public static unsafe class Module
         Url: "https://example.invalid",
         Email: "dev@example.invalid",
         SubCategories: "Fx",
-        Version: "1.0.0");
+        Version: "1.0.0",
+        Parameters: new ParameterDescriptor[]
+        {
+            new(0, "Gain", "Gain", "x", Min: 0.0, Max: 2.0, Default: 1.0),
+            new(1, "SC Amount", "SC", "%", Min: 0.0, Max: 100.0, Default: 0.0),
+        },
+        CreateProcessor: static () => new GainProcessor());
 
     [UnmanagedCallersOnly(EntryPoint = "GetPluginFactory", CallConvs = new[] { typeof(CallConvStdcall) })]
     public static void* GetPluginFactory()

@@ -2,7 +2,7 @@
 
 用 C# 编写与宿主 VST3 插件的最小互操作层（Windows x64 / net10.0 / NativeAOT）。
 
-状态：S3 —— 合并式组件、立体声、Gain / SC Amount 参数、MIDI 事件、Sidechain、状态存取、自动化输入（`IParameterChanges`）、`.vst3` bundle 打包。
+状态：S4 —— 作者 API（参数与 DSP 由插件自己声明/实现）、合并式组件、立体声、MIDI 事件、Sidechain、状态存取、自动化输入、`.vst3` bundle 打包。
 
 ## 结构
 
@@ -38,6 +38,13 @@ C:\Program Files\Common Files\VST3\
 - **Gain**：插件参数面板里拉到 0 应静音，拉回 1.0 恢复。
 - **SC Amount**：默认 0，插件保持直通（即使宿主送入 sidechain 缓冲也不压）。调到 80% 后，把另一条轨 Send 到 `Sidechain`，主信号才会被压低。
 - **MIDI**：FL 对效果器的 MIDI 路由支持有限；音符门控已在 `Host.Manual` 里验证（note-on velocity 缩放增益，note-off 恢复）。
+
+## 作者 API
+
+- `PluginDescriptor`：类信息 + 参数表 + `CreateProcessor`
+- `AudioProcessor.Process(in ProcessContext)`：作者自己的 DSP
+- `ParameterCollection`：归一化参数读写、plain/normalized 转换
+- 框架只负责 ABI/vtable、参数查询与自动化写入、事件解析、参数状态序列化，不包含任何业务 DSP
 
 ## 尚未实现
 

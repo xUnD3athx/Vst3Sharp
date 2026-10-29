@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -9,29 +8,21 @@ namespace Vst3.Plugin;
 /// <summary>
 /// Combined component / audio processor / edit controller (VST3 single component effect).
 /// Three vtable views share one managed instance and one reference count.
+/// Parameter and DSP behaviour come from the <see cref="PluginDescriptor"/>.
 /// </summary>
 internal unsafe sealed class PluginComponent : ComObject
 {
     private const uint StateMagic = 0x31565350; // "PSV1"
-    private const int StateSize = 20;
-    private const double MaxGain = 2.0;
+    private const int MaxEventsPerBlock = 128;
 
     private static nint* s_componentVTable;
     private static nint* s_processorVTable;
     private static nint* s_controllerVTable;
 
-    private double _gainNormalized = 0.5;
-    private int _maxBlockSize = 128;
-    private double _sampleRate = 48000.0;
-    private byte _active;
-    private byte _processing;
-    private void* _componentHandler;
-    private double _midiGate = 1.0;
-    private byte _sidechainActive;
-    private double _sidechainAmount;
-
-    private const uint GainParameterId = 0;
-    private const uint SidechainAmountParameterId = 1;
+    private readonly PluginDescriptor _descriptor;
+    private readonly ParameterCollection _parameters;
+    private readonly AudioProcessor _processor;
+    private readonly Event[] _events = new Event[MaxEventsPerBlock];
 
     static PluginComponent()
     {
@@ -91,8 +82,15 @@ internal unsafe sealed class PluginComponent : ComObject
         });
     }
 
-    public PluginComponent()
+    public PluginComponent(PluginDescriptor descriptor)
     {
+        _descriptor = descriptor;
+        _parameters = new ParameterCollection(descriptor.Parameters ?? Array.Empty<ParameterDescriptor>());
+
+        _processor = descriptor.CreateProcessor?.Invoke()
+            ?? throw new InvalidOperationException($"Plugin '{descriptor.Name}' has no processor factory.");
+
+        _processor.Parameters = _parameters;
         Initialize(new nint[] { (nint)s_componentVTable, (nint)s_processorVTable, (nint)s_controllerVTable });
     }
 
@@ -159,7 +157,11 @@ internal unsafe sealed class PluginComponent : ComObject
     private static int Initialize(void* self, void* context) => Result.Ok;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int Terminate(void* self) => Result.Ok;
+    private static int Terminate(void* self)
+    {
+        Self<PluginComponent>(self)._processor.Terminate();
+        return Result.Ok;
+    }
 
     // ----- IComponent -----
 
@@ -245,18 +247,12 @@ internal unsafe sealed class PluginComponent : ComObject
     private static int GetRoutingInfo(void* self, void* inInfo, void* outInfo) => Result.NotImplemented;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int ActivateBus(void* self, int mediaType, int direction, int index, byte state)
-    {
-        if (mediaType == MediaTypes.Audio && direction == BusDirections.Input && index == 1)
-            Self<PluginComponent>(self)._sidechainActive = state;
-
-        return Result.Ok;
-    }
+    private static int ActivateBus(void* self, int mediaType, int direction, int index, byte state) => Result.Ok;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int SetActive(void* self, byte state)
     {
-        Self<PluginComponent>(self)._active = state;
+        Self<PluginComponent>(self)._processor.SetActive(state != 0);
         return Result.Ok;
     }
 
@@ -266,18 +262,21 @@ internal unsafe sealed class PluginComponent : ComObject
         if (stream == null)
             return Result.InvalidArgument;
 
-        byte* buffer = stackalloc byte[StateSize];
-        if (ReadStream(stream, buffer, StateSize) != StateSize)
-            return Result.False;
-
-        if (BinaryPrimitives.ReadUInt32LittleEndian(new Span<byte>(buffer, 4)) != StateMagic)
-            return Result.False;
-
         var instance = Self<PluginComponent>(self);
-        instance._gainNormalized = Math.Clamp(
-            BinaryPrimitives.ReadDoubleLittleEndian(new Span<byte>(buffer + 4, 8)), 0.0, 1.0);
-        instance._sidechainAmount = Math.Clamp(
-            BinaryPrimitives.ReadDoubleLittleEndian(new Span<byte>(buffer + 12, 8)), 0.0, 1.0);
+
+        if (ReadUInt32(stream) != StateMagic)
+            return Result.False;
+
+        uint count = ReadUInt32(stream);
+        if (count != (uint)instance._parameters.Count)
+            return Result.False;
+
+        for (int i = 0; i < instance._parameters.Count; i++)
+        {
+            double value = ReadDouble(stream);
+            instance._parameters.SetNormalized(i, value);
+        }
+
         return Result.Ok;
     }
 
@@ -288,28 +287,13 @@ internal unsafe sealed class PluginComponent : ComObject
             return Result.InvalidArgument;
 
         var instance = Self<PluginComponent>(self);
-        byte* buffer = stackalloc byte[StateSize];
-        BinaryPrimitives.WriteUInt32LittleEndian(new Span<byte>(buffer, 4), StateMagic);
-        BinaryPrimitives.WriteDoubleLittleEndian(new Span<byte>(buffer + 4, 8), instance._gainNormalized);
-        BinaryPrimitives.WriteDoubleLittleEndian(new Span<byte>(buffer + 12, 8), instance._sidechainAmount);
+        WriteUInt32(stream, StateMagic);
+        WriteUInt32(stream, (uint)instance._parameters.Count);
 
-        return WriteStream(stream, buffer, StateSize) == StateSize ? Result.Ok : Result.False;
-    }
+        for (int i = 0; i < instance._parameters.Count; i++)
+            WriteDouble(stream, instance._parameters.GetNormalized(i));
 
-    private static int ReadStream(void* stream, void* buffer, int bytes)
-    {
-        nint* vtable = *(nint**)stream;
-        var read = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[3];
-        int readBytes = 0;
-        return read(stream, buffer, bytes, &readBytes) == Result.Ok ? readBytes : -1;
-    }
-
-    private static int WriteStream(void* stream, void* buffer, int bytes)
-    {
-        nint* vtable = *(nint**)stream;
-        var write = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[4];
-        int written = 0;
-        return write(stream, buffer, bytes, &written) == Result.Ok ? written : -1;
+        return Result.Ok;
     }
 
     // ----- IAudioProcessor -----
@@ -366,18 +350,15 @@ internal unsafe sealed class PluginComponent : ComObject
         if (setup->SymbolicSampleSize != SampleSizes.Sample32)
             return Result.False;
 
-        var instance = Self<PluginComponent>(self);
-        instance._maxBlockSize = setup->MaxSamplesPerBlock;
-        instance._sampleRate = setup->SampleRate;
+        var processor = Self<PluginComponent>(self)._processor;
+        processor.SampleRate = setup->SampleRate;
+        processor.MaxBlockSize = setup->MaxSamplesPerBlock;
+        processor.SetupProcessing(setup->SampleRate, setup->MaxSamplesPerBlock);
         return Result.Ok;
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetProcessing(void* self, byte state)
-    {
-        Self<PluginComponent>(self)._processing = state;
-        return Result.Ok;
-    }
+    private static int SetProcessing(void* self, byte state) => Result.Ok;
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
     private static int Process(void* self, ProcessData* data)
@@ -385,81 +366,174 @@ internal unsafe sealed class PluginComponent : ComObject
         if (data == null)
             return Result.InvalidArgument;
 
-        int numSamples = data->NumSamples;
-        if (numSamples <= 0)
-            return Result.Ok;
-
-        AudioBusBuffers* outputs = data->Outputs;
-        if (outputs == null || data->NumOutputs == 0)
-            return Result.Ok;
-
         var instance = Self<PluginComponent>(self);
-        ApplyEvents(data, instance);
         ApplyParameterChanges(data, instance);
 
-        float gain = (float)(instance._gainNormalized * MaxGain) * (float)instance._midiGate;
-        gain *= ComputeSidechainDuck(data, instance);
-
-        int outChannels = outputs[0].NumChannels;
-        float** outPointers = outputs[0].ChannelBuffers32;
-
-        AudioBusBuffers* inputs = data->Inputs;
-        if (inputs == null || data->NumInputs == 0)
+        int eventCount = 0;
+        fixed (Event* events = instance._events)
         {
-            for (int channel = 0; channel < outChannels; channel++)
+            void* eventList = data->InputEvents;
+            if (eventList != null)
             {
-                float* destination = outPointers[channel];
-                for (int i = 0; i < numSamples; i++)
-                    destination[i] = 0.0f;
+                nint* vtable = *(nint**)eventList;
+                var getEventCount = (delegate* unmanaged[Stdcall]<void*, int>)vtable[3];
+                var getEvent = (delegate* unmanaged[Stdcall]<void*, int, Event*, int>)vtable[4];
+
+                int count = getEventCount(eventList);
+                for (int i = 0; i < count && eventCount < MaxEventsPerBlock; i++)
+                {
+                    Event e = default;
+                    if (getEvent(eventList, i, &e) == Result.Ok)
+                        events[eventCount++] = e;
+                }
             }
 
-            return Result.Ok;
-        }
+            var context = new ProcessContext
+            {
+                SampleCount = data->NumSamples,
+                InputBusCount = data->NumInputs,
+                OutputBusCount = data->NumOutputs,
+                Inputs = data->Inputs,
+                Outputs = data->Outputs,
+                Events = events,
+                EventCount = eventCount
+            };
 
-        int channels = Math.Min(inputs[0].NumChannels, outChannels);
-        float** inPointers = inputs[0].ChannelBuffers32;
-
-        for (int channel = 0; channel < channels; channel++)
-        {
-            float* source = inPointers[channel];
-            float* destination = outPointers[channel];
-            for (int i = 0; i < numSamples; i++)
-                destination[i] = source[i] * gain;
-        }
-
-        for (int channel = channels; channel < outChannels; channel++)
-        {
-            float* destination = outPointers[channel];
-            for (int i = 0; i < numSamples; i++)
-                destination[i] = 0.0f;
+            instance._processor.Process(in context);
         }
 
         return Result.Ok;
     }
 
-    private static void ApplyEvents(ProcessData* data, PluginComponent instance)
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static uint GetTailSamples(void* self) => 0;
+
+    // ----- IEditController -----
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int SetComponentState(void* self, void* stream) => Result.NotImplemented;
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int GetParameterCount(void* self) => Self<PluginComponent>(self)._parameters.Count;
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int GetParameterInfo(void* self, int index, ParameterInfo* info)
     {
-        void* list = data->InputEvents;
-        if (list == null)
-            return;
+        var parameters = Self<PluginComponent>(self)._parameters;
+        if (info == null || index < 0 || index >= parameters.Count)
+            return Result.InvalidArgument;
 
-        nint* vtable = *(nint**)list;
-        var getEventCount = (delegate* unmanaged[Stdcall]<void*, int>)vtable[3];
-        var getEvent = (delegate* unmanaged[Stdcall]<void*, int, Event*, int>)vtable[4];
-
-        int count = getEventCount(list);
-        for (int i = 0; i < count; i++)
-        {
-            Event e = default;
-            if (getEvent(list, i, &e) != Result.Ok)
-                continue;
-
-            if (e.Type == EventTypes.NoteOn)
-                instance._midiGate = Math.Clamp(e.NoteOn.Velocity, 0.0f, 1.0f);
-            else if (e.Type == EventTypes.NoteOff)
-                instance._midiGate = 1.0;
-        }
+        var descriptor = parameters.GetDescriptor(index);
+        info->Id = descriptor.Id;
+        info->SetTitle(descriptor.Title);
+        info->SetShortTitle(descriptor.ShortTitle);
+        info->SetUnits(descriptor.Units);
+        info->StepCount = descriptor.StepCount;
+        info->DefaultNormalizedValue = parameters.ToNormalized(index, descriptor.Default);
+        info->UnitId = 0;
+        info->Flags = descriptor.Flags;
+        return Result.Ok;
     }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int GetParamStringByValue(void* self, uint id, double value, char* text)
+    {
+        if (text == null)
+            return Result.InvalidArgument;
+
+        var parameters = Self<PluginComponent>(self)._parameters;
+        int index = parameters.IndexOf(id);
+        if (index < 0)
+            return Result.InvalidArgument;
+
+        var descriptor = parameters.GetDescriptor(index);
+        double plain = parameters.ToPlain(index, Math.Clamp(value, 0.0, 1.0));
+
+        Span<char> buffer = stackalloc char[64];
+        if (!plain.TryFormat(buffer, out int written, "0.###", CultureInfo.InvariantCulture))
+            return Result.InternalError;
+
+        string? units = descriptor.Units;
+        if (!string.IsNullOrEmpty(units))
+        {
+            if (written < buffer.Length)
+                buffer[written++] = ' ';
+
+            foreach (char c in units)
+            {
+                if (written >= buffer.Length)
+                    break;
+                buffer[written++] = c;
+            }
+        }
+
+        if (written >= String128.Capacity)
+            written = String128.Capacity - 1;
+
+        for (int i = 0; i < written; i++)
+            text[i] = buffer[i];
+
+        text[written] = '\0';
+        return Result.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int GetParamValueByString(void* self, uint id, char* text, double* value)
+    {
+        if (text == null || value == null)
+            return Result.InvalidArgument;
+
+        var parameters = Self<PluginComponent>(self)._parameters;
+        int index = parameters.IndexOf(id);
+        if (index < 0)
+            return Result.InvalidArgument;
+
+        string source = String128.Read(text).TrimEnd('%', 'x', 'X', ' ');
+        if (!double.TryParse(source, NumberStyles.Float, CultureInfo.InvariantCulture, out double plain))
+            return Result.False;
+
+        *value = parameters.ToNormalized(index, plain);
+        return Result.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static double NormalizedParamToPlain(void* self, uint id, double value)
+    {
+        var parameters = Self<PluginComponent>(self)._parameters;
+        int index = parameters.IndexOf(id);
+        return index >= 0 ? parameters.ToPlain(index, Math.Clamp(value, 0.0, 1.0)) : 0.0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static double PlainParamToNormalized(void* self, uint id, double value)
+    {
+        var parameters = Self<PluginComponent>(self)._parameters;
+        int index = parameters.IndexOf(id);
+        return index >= 0 ? parameters.ToNormalized(index, value) : 0.0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static double GetParamNormalized(void* self, uint id) =>
+        Self<PluginComponent>(self)._parameters.GetNormalized(id);
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int SetParamNormalized(void* self, uint id, double value)
+    {
+        var parameters = Self<PluginComponent>(self)._parameters;
+        if (parameters.IndexOf(id) < 0)
+            return Result.InvalidArgument;
+
+        parameters.SetNormalized(id, value);
+        return Result.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static int SetComponentHandler(void* self, void* handler) => Result.Ok;
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+    private static void* CreateView(void* self, byte* name) => null;
+
+    // ----- helpers -----
 
     private static void ApplyParameterChanges(ProcessData* data, PluginComponent instance)
     {
@@ -492,215 +566,47 @@ internal unsafe sealed class PluginComponent : ComObject
             if (getPoint(queue, points - 1, &sampleOffset, &value) != Result.Ok)
                 continue;
 
-            uint id = getParameterId(queue);
-            double clamped = Math.Clamp(value, 0.0, 1.0);
-
-            if (id == GainParameterId)
-                instance._gainNormalized = clamped;
-            else if (id == SidechainAmountParameterId)
-                instance._sidechainAmount = clamped;
+            instance._parameters.SetNormalized(getParameterId(queue), value);
         }
     }
 
-    private static float ComputeSidechainDuck(ProcessData* data, PluginComponent instance)
+    private static uint ReadUInt32(void* stream)
     {
-        double amount = instance._sidechainAmount;
-        if (amount <= 0.0)
-            return 1.0f;
-
-        if (data->NumInputs < 2)
-            return 1.0f;
-
-        AudioBusBuffers* inputs = data->Inputs;
-        if (inputs == null || inputs[1].NumChannels <= 0)
-            return 1.0f;
-
-        float** channels = inputs[1].ChannelBuffers32;
-        if (channels == null)
-            return 1.0f;
-
-        float peak = 0.0f;
-        for (int channel = 0; channel < inputs[1].NumChannels; channel++)
-        {
-            float* samples = channels[channel];
-            for (int i = 0; i < data->NumSamples; i++)
-            {
-                float value = samples[i];
-                if (value < 0.0f)
-                    value = -value;
-                if (value > peak)
-                    peak = value;
-            }
-        }
-
-        if (peak <= 0.0001f)
-            return 1.0f;
-
-        if (peak > 1.0f)
-            peak = 1.0f;
-
-        return (float)(1.0 - amount * peak);
+        uint value = 0;
+        ReadStream(stream, &value, 4);
+        return value;
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static uint GetTailSamples(void* self) => 0;
-
-    // ----- IEditController -----
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetComponentState(void* self, void* stream) => Result.NotImplemented;
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetParameterCount(void* self) => 2;
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetParameterInfo(void* self, int index, ParameterInfo* info)
+    private static double ReadDouble(void* stream)
     {
-        if (info == null)
-            return Result.InvalidArgument;
-
-        info->Id = (uint)index;
-        info->StepCount = 0;
-        info->UnitId = 0;
-        info->Flags = ParameterFlags.CanAutomate;
-
-        if (index == 0)
-        {
-            info->SetTitle("Gain");
-            info->SetShortTitle("Gain");
-            info->SetUnits("x");
-            info->DefaultNormalizedValue = 0.5;
-            return Result.Ok;
-        }
-
-        if (index == 1)
-        {
-            info->SetTitle("SC Amount");
-            info->SetShortTitle("SC");
-            info->SetUnits("%");
-            info->DefaultNormalizedValue = 0.0;
-            return Result.Ok;
-        }
-
-        return Result.InvalidArgument;
+        double value = 0.0;
+        ReadStream(stream, &value, 8);
+        return value;
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetParamStringByValue(void* self, uint id, double value, char* text)
+    private static void WriteUInt32(void* stream, uint value)
     {
-        if (text == null)
-            return Result.InvalidArgument;
-
-        Span<char> buffer = stackalloc char[64];
-        int written;
-
-        if (id == GainParameterId)
-        {
-            double plain = value * MaxGain;
-            if (!plain.TryFormat(buffer, out written, "0.00", CultureInfo.InvariantCulture))
-                return Result.InternalError;
-
-            buffer[written++] = ' ';
-            buffer[written++] = 'x';
-        }
-        else if (id == SidechainAmountParameterId)
-        {
-            double percent = value * 100.0;
-            if (!percent.TryFormat(buffer, out written, "0", CultureInfo.InvariantCulture))
-                return Result.InternalError;
-
-            buffer[written++] = '%';
-        }
-        else
-        {
-            return Result.InvalidArgument;
-        }
-
-        if (written >= String128.Capacity)
-            written = String128.Capacity - 1;
-
-        for (int i = 0; i < written; i++)
-            text[i] = buffer[i];
-
-        text[written] = '\0';
-        return Result.Ok;
+        WriteStream(stream, &value, 4);
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int GetParamValueByString(void* self, uint id, char* text, double* value)
+    private static void WriteDouble(void* stream, double value)
     {
-        if (text == null || value == null)
-            return Result.InvalidArgument;
-
-        string source = String128.Read(text).TrimEnd('x', 'X', '%', ' ');
-        if (!double.TryParse(source, NumberStyles.Float, CultureInfo.InvariantCulture, out double plain))
-            return Result.False;
-
-        if (id == GainParameterId)
-        {
-            *value = Math.Clamp(plain / MaxGain, 0.0, 1.0);
-            return Result.Ok;
-        }
-
-        if (id == SidechainAmountParameterId)
-        {
-            *value = Math.Clamp(plain / 100.0, 0.0, 1.0);
-            return Result.Ok;
-        }
-
-        return Result.InvalidArgument;
+        WriteStream(stream, &value, 8);
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static double NormalizedParamToPlain(void* self, uint id, double value) =>
-        id == GainParameterId ? value * MaxGain : value * 100.0;
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static double PlainParamToNormalized(void* self, uint id, double value) =>
-        id == GainParameterId
-            ? Math.Clamp(value / MaxGain, 0.0, 1.0)
-            : Math.Clamp(value / 100.0, 0.0, 1.0);
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static double GetParamNormalized(void* self, uint id)
+    private static int ReadStream(void* stream, void* buffer, int bytes)
     {
-        var instance = Self<PluginComponent>(self);
-        return id switch
-        {
-            GainParameterId => instance._gainNormalized,
-            SidechainAmountParameterId => instance._sidechainAmount,
-            _ => 0.0
-        };
+        nint* vtable = *(nint**)stream;
+        var read = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[3];
+        int readBytes = 0;
+        return read(stream, buffer, bytes, &readBytes) == Result.Ok ? readBytes : -1;
     }
 
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetParamNormalized(void* self, uint id, double value)
+    private static int WriteStream(void* stream, void* buffer, int bytes)
     {
-        var instance = Self<PluginComponent>(self);
-        double clamped = Math.Clamp(value, 0.0, 1.0);
-
-        if (id == GainParameterId)
-        {
-            instance._gainNormalized = clamped;
-            return Result.Ok;
-        }
-
-        if (id == SidechainAmountParameterId)
-        {
-            instance._sidechainAmount = clamped;
-            return Result.Ok;
-        }
-
-        return Result.InvalidArgument;
+        nint* vtable = *(nint**)stream;
+        var write = (delegate* unmanaged[Stdcall]<void*, void*, int, int*, int>)vtable[4];
+        int written = 0;
+        return write(stream, buffer, bytes, &written) == Result.Ok ? written : -1;
     }
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static int SetComponentHandler(void* self, void* handler)
-    {
-        Self<PluginComponent>(self)._componentHandler = handler;
-        return Result.Ok;
-    }
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
-    private static void* CreateView(void* self, byte* name) => null;
 }
