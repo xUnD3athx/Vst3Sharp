@@ -8,7 +8,7 @@ internal sealed unsafe class SkiaRenderer : IDisposable
 {
     private SKBitmap _bitmap;
     private SKCanvas _canvas;
-    private readonly SKPaint _solidPaint = new() { IsAntialias = true };
+    private readonly SKPaint _solidPaint = new() { IsAntialias = true, Color = SKColors.White };
     private readonly SKPaint _texturedPaint = new() { IsAntialias = true };
     private readonly SKBitmap _fontBitmap;
     private readonly SKImage _fontImage;
@@ -146,18 +146,13 @@ internal sealed unsafe class SkiaRenderer : IDisposable
                 _canvas.ClipRect(new SKRect(
                     command.ClipRect.X, command.ClipRect.Y, command.ClipRect.Z, command.ClipRect.W));
 
-                // Skia ignores vertex colors here, so draw solid triangles with a per-triangle paint color.
-                for (int i = 0; i < solidCount; i += 3)
+                if (solidCount > 0)
                 {
-                    ushort i0 = solidIndices[i];
-                    ushort i1 = solidIndices[i + 1];
-                    ushort i2 = solidIndices[i + 2];
-
-                    _solidPaint.Color = colors[i0];
-                    var triangle = new ushort[] { i0, i1, i2 };
+                    var indices = new ushort[solidCount];
+                    Array.Copy(solidIndices, indices, solidCount);
                     using var vertices = SKVertices.CreateCopy(
-                        SKVertexMode.Triangles, positions, texCoords, null, triangle);
-                    _canvas.DrawVertices(vertices, SKBlendMode.SrcOver, _solidPaint);
+                        SKVertexMode.Triangles, positions, texCoords, colors, indices);
+                    _canvas.DrawVertices(vertices, SKBlendMode.Modulate, _solidPaint);
                 }
 
                 if (texturedCount > 0)
