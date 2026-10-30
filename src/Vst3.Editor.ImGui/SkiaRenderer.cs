@@ -27,7 +27,7 @@ internal sealed unsafe class SkiaRenderer : IDisposable
         _bitmap = new SKBitmap(CreateInfo(width, height));
         _canvas = new SKCanvas(_bitmap);
 
-        if (fonts.Fonts.Size == 0)
+        if (fonts.Fonts.Size == 0 && !EditorFont.TryAdd(fonts))
             fonts.AddFontDefault();
 
         fonts.GetTexDataAsRGBA32(out IntPtr pixels, out int atlasWidth, out int atlasHeight, out _);

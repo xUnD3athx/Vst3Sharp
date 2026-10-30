@@ -15,15 +15,22 @@ internal static unsafe class NativeLibraryBootstrap
     private static bool s_initialized;
     private static string? s_directory;
 
+    internal static string? ModuleDirectory
+    {
+        get
+        {
+            s_directory ??= GetModuleDirectory();
+            return s_directory;
+        }
+    }
+
     public static void Ensure()
     {
         if (s_initialized)
             return;
 
         s_initialized = true;
-        s_directory = GetModuleDirectory();
-
-        if (s_directory == null)
+        if (ModuleDirectory == null)
             return;
 
         Preload("cimgui.dll");

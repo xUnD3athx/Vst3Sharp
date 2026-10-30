@@ -19,6 +19,7 @@
 - [Generator](#generator)
 - [Editor](#editor)
   - [EditorView](#editorview)
+  - [EditorFont](#editorfont)
   - [UiCanvas](#uicanvas)
   - [Input](#input)
 - [Low-level API](#low-level-api)
@@ -44,6 +45,7 @@
 | `PluginKind` | `Vst3` | `Effect` / `Instrument` |
 | `VstPluginAttribute`, `ParameterAttribute` | `Vst3` | Generator input |
 | `EditorView` | `Vst3.Editor` | Editor base class |
+| `EditorFont`, `EditorGlyphRange` | `Vst3.Editor` | TTF/OTF/TTC font configuration |
 | `UiCanvas`, `UiColor` | `Vst3.Editor` | Drawing |
 | `UiInput`, `UiPointerEvent`, `UiWheelEvent`, `UiKeyEvent` | `Vst3.Editor` | Input |
 | `UiKey`, `UiMouseButton`, `UiModifiers`, `UiPointerAction` | `Vst3.Editor` | Input enums |
@@ -240,6 +242,36 @@ public sealed class MyEditor : EditorView
 | `OnText` | `virtual void OnText(char c)` |
 | `OnFocusChanged` | `virtual void OnFocusChanged(bool focused)` |
 | `OnResize` | `virtual void OnResize(int width, int height)` |
+
+### EditorFont
+
+The editor uses ImGui's built-in bitmap font by default. To get smoother text or non-Latin glyphs, configure a TTF/OTF/TTC before the first editor opens:
+
+```csharp
+using Vst3.Editor;
+
+static GainPlugin()
+{
+    EditorFont.UseFile(
+        @"C:\Windows\Fonts\msyh.ttc",
+        pixelSize: 16,
+        glyphRange: EditorGlyphRange.ChineseSimplified);
+}
+```
+
+| Member | Notes |
+| --- | --- |
+| `UseFile(path, pixelSize = 16, glyphRange = Default, faceIndex = 0)` | Selects a font file and sets size, glyph range, and TTC face index |
+| `FilePath` | Font path; relative paths resolve against the plugin module directory |
+| `PixelSize` | Base size in pixels; defaults to 16 |
+| `GlyphRange` | `EditorGlyphRange`: `Default`, `Latin`, `Greek`, `Cyrillic`, `ChineseSimplified`, `ChineseFull`, `Japanese`, `Korean`, `Thai`, `Vietnamese` |
+| `FaceIndex` | Face index inside a TTC collection; 0 for single-face files |
+| `Reset()` | Restores the built-in bitmap font |
+
+- A missing file, unsupported extension, or invalid header silently falls back to the bitmap font instead of bringing the host down.
+- Prefer `ChineseSimplified` for Chinese UI text (common glyphs, smaller atlas); `ChineseFull` covers more glyphs but grows the atlas significantly.
+- Fonts can ship with the plugin: `.ttf` / `.otf` / `.ttc` files in the publish root are copied into the `.vst3` bundle.
+- Offline diagnostics: the `VST3SHARP_FONT` environment variable overrides the path, and `VST3SHARP_FONT_RANGE` overrides the glyph range (for example `ChineseSimplified`).
 
 ### UiCanvas
 
