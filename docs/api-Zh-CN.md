@@ -285,7 +285,7 @@ static GainPlugin()
 | `Width` / `Height` | `float` |
 | `Rect` | `Rect(x, y, width, height, UiColor)` |
 | `RoundRect` | `RoundRect(x, y, width, height, radius, UiColor)` |
-| `RectOutline` | `RectOutline(x, y, width, height, UiColor, thickness = 1)` |
+| `RectOutline` | `RectOutline(x, y, width, height, UiColor, thickness = 1, radius = 0)` |
 | `Circle` | `Circle(centerX, centerY, radius, UiColor, filled = true)` |
 | `Line` | `Line(x1, y1, x2, y2, UiColor, thickness = 1)` |
 | `Text` | `Text(x, y, string, UiColor, size = 0)`，`size` 为 0 时使用默认字号 |

@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using ImGuiNET;
 
@@ -26,9 +27,21 @@ public readonly unsafe ref struct UiCanvas
         _drawList.AddRectFilled(
             new Vector2(x, y), new Vector2(x + width, y + height), color.ToPacked(), radius);
 
-    public void RectOutline(float x, float y, float width, float height, UiColor color, float thickness = 1.0f) =>
+    public void RectOutline(
+        float x,
+        float y,
+        float width,
+        float height,
+        UiColor color,
+        float thickness = 1.0f,
+        float radius = 0.0f) =>
         _drawList.AddRect(
-            new Vector2(x, y), new Vector2(x + width, y + height), color.ToPacked(), 0.0f, ImDrawFlags.None, thickness);
+            new Vector2(x, y),
+            new Vector2(x + width, y + height),
+            color.ToPacked(),
+            MathF.Max(0.0f, radius),
+            ImDrawFlags.None,
+            thickness);
 
     public void Circle(float centerX, float centerY, float radius, UiColor color, bool filled = true)
     {

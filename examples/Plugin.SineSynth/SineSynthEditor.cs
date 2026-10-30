@@ -18,6 +18,7 @@ public sealed class SineSynthEditor : EditorView
     {
         ui.Rect(0, 0, ui.Width, ui.Height, new UiColor(22, 22, 26));
         ui.RoundRect(16, 16, ui.Width - 32, ui.Height - 32, 10, new UiColor(32, 32, 38));
+        ui.RectOutline(16, 16, ui.Width - 32, ui.Height - 32, new UiColor(70, 70, 84), 2, 10);
 
         ui.Text(36, 32, "SineSynth", new UiColor(238, 238, 242), 24);
         ui.Text(36, 64, "16-voice sine", new UiColor(132, 132, 144), 14);

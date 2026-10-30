@@ -285,7 +285,7 @@ Valid only inside `OnRender`; coordinates are view-local physical pixels.
 | `Width` / `Height` | `float` |
 | `Rect` | `Rect(x, y, width, height, UiColor)` |
 | `RoundRect` | `RoundRect(x, y, width, height, radius, UiColor)` |
-| `RectOutline` | `RectOutline(x, y, width, height, UiColor, thickness = 1)` |
+| `RectOutline` | `RectOutline(x, y, width, height, UiColor, thickness = 1, radius = 0)` |
 | `Circle` | `Circle(centerX, centerY, radius, UiColor, filled = true)` |
 | `Line` | `Line(x1, y1, x2, y2, UiColor, thickness = 1)` |
 | `Text` | `Text(x, y, string, UiColor, size = 0)`; `size` 0 uses the default font size |
