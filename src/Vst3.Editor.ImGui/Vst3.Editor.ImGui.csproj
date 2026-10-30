@@ -12,4 +12,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Vst3.Plugin\Vst3.Plugin.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fonts\*.ttf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Fonts\*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Fonts\*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

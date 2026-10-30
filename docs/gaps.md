@@ -15,7 +15,8 @@
 
 ## 编辑器
 
-- 默认仍使用 ImGui 位图字体；可通过 `EditorFont` 加载 TTF/OTF/TTC（含 CJK 字形），文本颜色仍沿用字体图集原色，无 DPI 缩放与主题。
+- 默认使用随包 Noto Sans（拉丁）与 Noto Sans SC 子集（中文，按 `GlyphRange` 合并）；仍可通过 `EditorFont` 换成任意 TTF/OTF/TTC 或关闭随包字体回到位图字体。文本颜色沿用字体图集原色，无 DPI 缩放与主题。
+- 中文字集只覆盖 ImGui `ChineseSimplified` 的 2500 常用字，不含韩文与全部 CJK 扩展字。
 - IME 未实现。
 
 ## 平台与工具链

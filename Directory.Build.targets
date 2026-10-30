@@ -8,12 +8,15 @@
     <Copy SourceFiles="$(PublishDir)$(AssemblyName).pdb" DestinationFiles="$(BundleRoot)$(Vst3BundleName).pdb" Condition="Exists('$(PublishDir)$(AssemblyName).pdb')" />
     <ItemGroup>
       <BundleNative Include="$(PublishDir)*.dll" Exclude="$(PublishDir)$(AssemblyName).dll" />
-      <BundleFont Include="$(PublishDir)**\*.ttf;$(PublishDir)**\*.otf;$(PublishDir)**\*.ttc" />
+      <BundleFont Include="$(PublishDir)**\*.ttf;$(PublishDir)**\*.otf;$(PublishDir)**\*.ttc"
+                  Exclude="$(PublishDir)$(Vst3BundleName).vst3\**" />
+      <BundleFontNotice Include="$(PublishDir)Fonts\*" />
     </ItemGroup>
     <Copy SourceFiles="@(BundleNative)" DestinationFolder="$(BundleRoot)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(BundleFont)"
           DestinationFiles="@(BundleFont->'$(BundleRoot)%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BundleFontNotice)" DestinationFolder="$(BundleRoot)Fonts" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="VST3 bundle: $(BundleRoot)" />
   </Target>
 </Project>

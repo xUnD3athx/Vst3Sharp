@@ -245,7 +245,7 @@ public sealed class MyEditor : EditorView
 
 ### EditorFont
 
-默认使用 ImGui 内置位图字体。需要更好观感或中文/日文/韩文字形时，在首次打开编辑器前配置 TTF/OTF/TTC：
+编辑器默认使用随插件发布的 **Noto Sans**（`Fonts/NotoSans-Regular.ttf`）；字形范围为中日韩时自动合并 **Noto Sans SC** 子集（`Fonts/NotoSansSC-Regular.ttf`）。两者均为 SIL OFL 1.1，可随插件分发。需要换字体、换字号或换字形范围时，在首次打开编辑器前配置：
 
 ```csharp
 using Vst3.Editor;
@@ -262,15 +262,18 @@ static GainPlugin()
 | 成员 | 说明 |
 | --- | --- |
 | `UseFile(path, pixelSize = 16, glyphRange = Default, faceIndex = 0)` | 选择字体文件并设置字号、字形范围、TTC 中的字体序号 |
-| `FilePath` | 字体路径；相对路径按插件模块目录解析 |
+| `FilePath` | 字体路径；相对路径按插件模块目录解析；为空时使用随包字体 |
 | `PixelSize` | 基础字号（像素），默认 16 |
 | `GlyphRange` | `EditorGlyphRange`：`Default`、`Latin`、`Greek`、`Cyrillic`、`ChineseSimplified`、`ChineseFull`、`Japanese`、`Korean`、`Thai`、`Vietnamese` |
 | `FaceIndex` | TTC 集合中的字体序号，单字体文件为 0 |
-| `Reset()` | 恢复内置位图字体 |
+| `UseBundledFont` | 未指定 `FilePath` 时是否使用随包字体，默认 `true`；设为 `false` 回到 ImGui 内置位图字体 |
+| `Reset()` | 恢复默认配置：随包字体、16 px、`Default` 范围 |
 
-- 文件不存在、扩展名不支持或文件头无效时自动回退到位图字体，不会让宿主崩溃。
-- 中文字形建议使用 `ChineseSimplified`（常用字，图集较小）；`ChineseFull` 覆盖更全但图集会明显变大。
-- 字体文件可随插件发布：放进发布目录后，根目录的 `.ttf` / `.otf` / `.ttc` 会被复制到 `.vst3` bundle。
+- 显式配置的文件不存在、扩展名不支持或文件头无效时回退到位图字体，不会让宿主崩溃；随包字体缺失时同样回退。
+- 中日韩范围会合并 Noto Sans SC 子集；子集只含 ImGui `ChineseSimplified` 的 2500 常用汉字及标点、假名，不含韩文和全部 CJK 扩展字。
+- 中文字形建议使用 `ChineseSimplified`（图集约 1024×1024）；`ChineseFull` 会请求更多码位，但子集外字符仍显示为 `?`。
+- 字体随插件发布：`Fonts/` 目录（含 `OFL-*.txt` 许可证）会进入 `.vst3` bundle；发布目录其他位置的 `.ttf` / `.otf` / `.ttc` 也会被复制。
+- 字体许可：Noto Sans © Google LLC，Noto Sans SC © Adobe，均为 SIL OFL 1.1；保留字体名为 `Source`，子集未使用该名称。
 - 离线诊断：环境变量 `VST3SHARP_FONT` 覆盖字体路径，`VST3SHARP_FONT_RANGE` 覆盖字形范围（如 `ChineseSimplified`）。
 
 ### UiCanvas

@@ -20,7 +20,8 @@ public enum EditorGlyphRange
 
 /// <summary>
 /// Process-wide TrueType/OpenType font selection for plugin editors.
-/// Set this before the first editor is opened; a missing or invalid file falls back
+/// Set this before the first editor is opened. By default the fonts bundled in
+/// <c>Fonts/</c> next to the plugin module are used; a missing or invalid file falls back
 /// to the built-in bitmap font. Relative paths resolve against the plugin module directory.
 /// </summary>
 public static class EditorFont
@@ -29,6 +30,12 @@ public static class EditorFont
     private const string FontPathVariable = "VST3SHARP_FONT";
 
     private const string FontRangeVariable = "VST3SHARP_FONT_RANGE";
+
+    private const string FontFolderName = "Fonts";
+
+    private const string BundledUiFont = "NotoSans-Regular.ttf";
+
+    private const string BundledCjkFont = "NotoSansSC-Regular.ttf";
 
     public const float DefaultPixelSize = 16.0f;
 
@@ -43,6 +50,12 @@ public static class EditorFont
 
     public static EditorGlyphRange GlyphRange { get; set; } = EditorGlyphRange.Default;
 
+    /// <summary>
+    /// Use the bundled Noto Sans/Noto Sans SC files when <see cref="FilePath"/> is not set.
+    /// Disable to fall back to ImGui's built-in bitmap font.
+    /// </summary>
+    public static bool UseBundledFont { get; set; } = true;
+
     /// <summary>Selects a font file and resets the other options to the supplied values.</summary>
     public static void UseFile(
         string path,
@@ -56,38 +69,57 @@ public static class EditorFont
         FaceIndex = faceIndex;
     }
 
-    /// <summary>Restores the built-in bitmap font.</summary>
+    /// <summary>Restores the default configuration: bundled fonts, 16 px, default range.</summary>
     public static void Reset()
     {
         FilePath = null;
         FaceIndex = 0;
         PixelSize = DefaultPixelSize;
         GlyphRange = EditorGlyphRange.Default;
+        UseBundledFont = true;
     }
 
     internal static unsafe bool TryAdd(ImFontAtlasPtr fonts)
     {
-        string? path = FilePath;
-        if (string.IsNullOrWhiteSpace(path))
-            path = Environment.GetEnvironmentVariable(FontPathVariable);
+        EditorGlyphRange range = ResolveGlyphRange();
+        float size = NormalizeSize(PixelSize);
+        IntPtr ranges = SelectRanges(fonts, range);
 
-        if (string.IsNullOrWhiteSpace(path))
+        string? configured = ResolveConfiguredPath();
+        string? primary = configured ?? (UseBundledFont ? FindBundledFont(BundledUiFont) : null);
+        if (primary is null || !LooksLikeFontFile(primary))
             return false;
 
-        string? resolved = ResolvePath(path);
-        if (resolved is null || !LooksLikeFontFile(resolved))
+        if (!AddFont(fonts, primary, size, ranges, Math.Max(0, FaceIndex), merge: false))
             return false;
 
+        // The Latin font has no CJK glyphs: merge the bundled subset for CJK ranges.
+        // Explicitly configured fonts may already cover these code points; duplicates are skipped.
+        string? cjk = UseBundledFont ? FindBundledFont(BundledCjkFont) : null;
+        if (cjk is not null && IsCjkRange(range) && !IsSameFile(primary, cjk))
+            AddFont(fonts, cjk, size, ranges, faceIndex: 0, merge: true);
+
+        return true;
+    }
+
+    private static unsafe bool AddFont(
+        ImFontAtlasPtr fonts,
+        string path,
+        float size,
+        IntPtr ranges,
+        int faceIndex,
+        bool merge)
+    {
         ImFontConfigPtr config = ImGuiNative.ImFontConfig_ImFontConfig();
         try
         {
-            config.FontNo = Math.Max(0, FaceIndex);
+            config.FontNo = faceIndex;
             config.OversampleH = 2;
             config.OversampleV = 1;
             config.PixelSnapH = false;
+            config.MergeMode = merge;
 
-            IntPtr ranges = SelectRanges(fonts, ResolveGlyphRange());
-            ImFontPtr font = fonts.AddFontFromFileTTF(resolved, NormalizeSize(PixelSize), config, ranges);
+            ImFontPtr font = fonts.AddFontFromFileTTF(path, size, config, ranges);
             return font.NativePtr != null;
         }
         catch
@@ -97,6 +129,27 @@ public static class EditorFont
         finally
         {
             ImGuiNative.ImFontConfig_destroy(config);
+        }
+    }
+
+    private static bool IsCjkRange(EditorGlyphRange range) => range is
+        EditorGlyphRange.ChineseSimplified or
+        EditorGlyphRange.ChineseFull or
+        EditorGlyphRange.Japanese or
+        EditorGlyphRange.Korean;
+
+    private static bool IsSameFile(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left),
+                Path.GetFullPath(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -111,6 +164,25 @@ public static class EditorFont
 
     private static float NormalizeSize(float size) =>
         size >= 8.0f && size <= 128.0f ? size : DefaultPixelSize;
+
+    private static string? ResolveConfiguredPath()
+    {
+        string? path = FilePath;
+        if (string.IsNullOrWhiteSpace(path))
+            path = Environment.GetEnvironmentVariable(FontPathVariable);
+
+        return string.IsNullOrWhiteSpace(path) ? null : ResolvePath(path);
+    }
+
+    private static string? FindBundledFont(string fileName)
+    {
+        string? directory = NativeLibraryBootstrap.ModuleDirectory;
+        if (directory is null)
+            return null;
+
+        string path = Path.Combine(directory, FontFolderName, fileName);
+        return LooksLikeFontFile(path) ? path : null;
+    }
 
     private static string? ResolvePath(string path)
     {

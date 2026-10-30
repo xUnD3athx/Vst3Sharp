@@ -245,7 +245,7 @@ public sealed class MyEditor : EditorView
 
 ### EditorFont
 
-The editor uses ImGui's built-in bitmap font by default. To get smoother text or non-Latin glyphs, configure a TTF/OTF/TTC before the first editor opens:
+The editor uses the bundled **Noto Sans** (`Fonts/NotoSans-Regular.ttf`) by default; CJK ranges also merge the bundled **Noto Sans SC** subset (`Fonts/NotoSansSC-Regular.ttf`). Both are SIL OFL 1.1 and may ship with the plugin. To pick another file, size, or range, configure it before the first editor opens:
 
 ```csharp
 using Vst3.Editor;
@@ -262,15 +262,18 @@ static GainPlugin()
 | Member | Notes |
 | --- | --- |
 | `UseFile(path, pixelSize = 16, glyphRange = Default, faceIndex = 0)` | Selects a font file and sets size, glyph range, and TTC face index |
-| `FilePath` | Font path; relative paths resolve against the plugin module directory |
+| `FilePath` | Font path; relative paths resolve against the plugin module directory; empty uses the bundled fonts |
 | `PixelSize` | Base size in pixels; defaults to 16 |
 | `GlyphRange` | `EditorGlyphRange`: `Default`, `Latin`, `Greek`, `Cyrillic`, `ChineseSimplified`, `ChineseFull`, `Japanese`, `Korean`, `Thai`, `Vietnamese` |
 | `FaceIndex` | Face index inside a TTC collection; 0 for single-face files |
-| `Reset()` | Restores the built-in bitmap font |
+| `UseBundledFont` | Whether to use the bundled fonts when `FilePath` is unset; defaults to `true`; set `false` for ImGui's built-in bitmap font |
+| `Reset()` | Restores the defaults: bundled fonts, 16 px, `Default` range |
 
-- A missing file, unsupported extension, or invalid header silently falls back to the bitmap font instead of bringing the host down.
-- Prefer `ChineseSimplified` for Chinese UI text (common glyphs, smaller atlas); `ChineseFull` covers more glyphs but grows the atlas significantly.
-- Fonts can ship with the plugin: `.ttf` / `.otf` / `.ttc` files in the publish root are copied into the `.vst3` bundle.
+- An explicitly configured file that is missing, has an unsupported extension, or has an invalid header falls back to the bitmap font instead of bringing the host down; the same applies when the bundled fonts are absent.
+- CJK ranges merge the Noto Sans SC subset, which contains ImGui's `ChineseSimplified` set (2500 common hanzi plus punctuation and kana). Hangul and the full CJK extensions are not included.
+- Prefer `ChineseSimplified` (atlas around 1024×1024); `ChineseFull` requests more code points, but characters outside the subset still render as `?`.
+- Fonts ship with the plugin: the `Fonts/` directory (including the `OFL-*.txt` licenses) is copied into the `.vst3` bundle, along with any `.ttf` / `.otf` / `.ttc` files in the publish root.
+- Licensing: Noto Sans © Google LLC, Noto Sans SC © Adobe, both SIL OFL 1.1. The Reserved Font Name is `Source`; the subsets do not use it.
 - Offline diagnostics: the `VST3SHARP_FONT` environment variable overrides the path, and `VST3SHARP_FONT_RANGE` overrides the glyph range (for example `ChineseSimplified`).
 
 ### UiCanvas
