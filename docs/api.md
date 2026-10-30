@@ -1,153 +1,210 @@
-# 插件 API
+# Plugin API
 
-插件作者用 `Vst3` 命名空间。`Vst3.Plugin` 放底层实现和逃生口，`Vst3.Editor` 是编辑器。`Vst3.Interop` 是原始 ABI，只在绕过整个框架、自己实现 VST3 接口时才需要。
+**English** | [简体中文](api-Zh-CN.md)
 
-## 生命周期
+## Contents
 
-```
-new Plugin() → OnSetup(rate, block) → OnActivated(true) → Process × N → OnActivated(false) → OnTerminate()
-```
+- [Namespaces](#namespaces)
+- [Type overview](#type-overview)
+- [Vst3](#vst3)
+  - [AudioPlugin](#audioplugin)
+  - [AudioContext](#audiocontext)
+  - [AudioBuffer / AudioChannel](#audiobuffer--audiochannel)
+  - [FloatParameter](#floatparameter)
+  - [MidiEvent](#midievent)
+  - [Attributes](#attributes)
+- [Bus layout](#bus-layout)
+- [Parameter behavior](#parameter-behavior)
+  - [ParameterCollection](#parametercollection)
+- [Generator](#generator)
+- [Editor](#editor)
+  - [EditorView](#editorview)
+  - [UiCanvas](#uicanvas)
+  - [Input](#input)
+- [Low-level API](#low-level-api)
+- [Limitations](#limitations)
 
-一个 VST3 实例对应一个插件对象，构造发生在宿主创建组件时。`OnSetup` 对应 `setupProcessing`，`OnActivated` 对应 `setActive`，`OnTerminate` 在销毁前调用。
+## Namespaces
 
-`Process` 在音频线程执行，不能分配、加锁或做 IO。其余回调和编辑器回调在宿主主线程。
+| Namespace | Contents | Use |
+| --- | --- | --- |
+| `Vst3` | Author API: `AudioPlugin`, `AudioContext`, `FloatParameter`, `MidiEvent`, attributes | Writing plugins |
+| `Vst3.Plugin` | Framework internals: `AudioProcessor`, `PluginDescriptor`, `ParameterCollection` | Bypassing the generator, or using the lower-level base class directly |
+| `Vst3.Editor` | Editor: `EditorView`, `UiCanvas`, input types (`Vst3.Editor.ImGui` package) | Custom interfaces |
+| `Vst3.Interop` | Raw VST3 ABI: structs, vtables, result codes | Implementing VST3 interfaces directly |
 
-## AudioPlugin
+## Type overview
 
-```csharp
-protected abstract void Process(AudioContext context);
-public virtual void OnSetup(double sampleRate, int maxBlockSize);
-public virtual void OnActivated(bool active);
-public virtual void OnTerminate();
-protected ParameterCollection Parameters { get; }
-```
+| Type | Namespace | Purpose |
+| --- | --- | --- |
+| `AudioPlugin` | `Vst3` | Plugin base class |
+| `AudioContext` | `Vst3` | One audio block |
+| `AudioBuffer`, `AudioChannel` | `Vst3` | Bus and channel views |
+| `FloatParameter` | `Vst3` | Parameter field handle |
+| `MidiEvent`, `MidiEventKind` | `Vst3` | MIDI events |
+| `PluginKind` | `Vst3` | `Effect` / `Instrument` |
+| `VstPluginAttribute`, `ParameterAttribute` | `Vst3` | Generator input |
+| `EditorView` | `Vst3.Editor` | Editor base class |
+| `UiCanvas`, `UiColor` | `Vst3.Editor` | Drawing |
+| `UiInput`, `UiPointerEvent`, `UiWheelEvent`, `UiKeyEvent` | `Vst3.Editor` | Input |
+| `UiKey`, `UiMouseButton`, `UiModifiers`, `UiPointerAction` | `Vst3.Editor` | Input enums |
+| `AudioProcessor`, `ProcessContext` | `Vst3.Plugin` | Lower-level DSP base class |
+| `PluginDescriptor`, `ParameterDescriptor` | `Vst3.Plugin` | Hand-built descriptors |
+| `ParameterCollection` | `Vst3.Plugin` | Parameter storage |
+| `PluginViewContext`, `IPluginViewFactory` | `Vst3.Plugin` | Custom view factories |
+| `Vst3Plugin` | `Vst3.Plugin` | Module entry points |
 
-`DeclareParameters` 和 `BindParameters` 由生成器补齐，不要手写。`AudioContext` 是 `ref struct`，只在本次 `Process` 内有效。
+## Vst3
 
-## AudioContext
+### AudioPlugin
 
-```csharp
-int SampleCount { get; }
-AudioBuffer Input(int bus);
-AudioBuffer Output(int bus);
-ReadOnlySpan<MidiEvent> Events { get; }
-```
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Process` | `protected abstract void Process(AudioContext context)` | Abstract; runs on the audio thread |
+| `OnSetup` | `virtual void OnSetup(double sampleRate, int maxBlockSize)` | Maps to `setupProcessing` |
+| `OnActivated` | `virtual void OnActivated(bool active)` | Maps to `setActive` |
+| `OnTerminate` | `virtual void OnTerminate()` | Called before destruction |
+| `Parameters` | `protected ParameterCollection Parameters { get; }` | Parameters for this instance |
+| `DeclareParameters` | `virtual IReadOnlyList<ParameterDescriptor>` | Implemented by the generator |
+| `BindParameters` | `virtual void BindParameters()` | Implemented by the generator |
 
-总线布局由 `PluginKind` 固定：
+One VST3 instance corresponds to one plugin object. All callbacks except `Process` run on the host's main thread.
 
-| Kind | 音频输入 | 音频输出 | 事件输入 |
-| --- | --- | --- | --- |
-| `Effect` | 0 Input、1 Sidechain（均为立体声，Sidechain 是 Aux，默认不激活） | 0 Output | 无 |
-| `Instrument` | 无 | 0 Output | 一个 MIDI 输入 |
+### AudioContext
 
-总线不存在或索引越界时返回空 buffer（`ChannelCount == 0`），不需要判空。
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `SampleCount` | `int` | Samples in this block |
+| `Input` | `AudioBuffer Input(int bus)` | Audio input bus |
+| `Output` | `AudioBuffer Output(int bus)` | Audio output bus |
+| `Events` | `ReadOnlySpan<MidiEvent>` | Events in this block, retaining the original `SampleOffset` |
 
-`Events` 保留原始 `SampleOffset`。框架不按偏移切分音频块，事件在块内何时处理由 `Process` 决定；两个 sample 都在块首处理所有事件。
+A `ref struct`, valid only within the current `Process` call. A missing bus or an out-of-range index returns an empty buffer with `ChannelCount == 0`. The framework does not split audio blocks by event offset; the processing point of each event is decided by `Process`.
 
-## AudioBuffer / AudioChannel
+### AudioBuffer / AudioChannel
 
-```csharp
-int ChannelCount { get; }
-Span<float> this[int channel] { get; }
-ChannelList Channels { get; }   // foreach 遍历，元素是 AudioChannel
-```
-
-`AudioChannel` 提供 `Index`、`Length`、`Samples`（`Span<float>`）和 `this[int]`。音频固定为 32-bit float。
-
-## MidiEvent
-
-```csharp
-MidiEventKind Kind;   // Other / NoteOn / NoteOff
-int SampleOffset;
-int Channel;
-int Pitch;            // 0–127
-float Velocity;       // 0–1
-bool IsNoteOn, IsNoteOff;
-```
-
-只解析 note on/off。其他事件以 `Other` 出现，`Pitch` 和 `Velocity` 为 0。
-
-## FloatParameter
-
-```csharp
-double Normalized { get; set; }   // 0–1，自动化和宿主读写的值
-double Value { get; set; }        // 工程值，按 Min/Max 映射
-float Linear { get; }             // (float)Value
-```
-
-字段初始化时创建，生成器在构造后绑定；绑定前读到的是 0。
-
-## 参数
-
-- 参数 ID 就是字段的声明顺序（0、1、…）。发布后调整字段顺序，旧工程和预设会错位。
-- `Steps` 只是元数据，不做量化；`Unit` 只用于宿主显示。
-- 自动化按块生效：每个参数只取队列里的最后一个点，在 `Process` 之前写入，不是采样级。
-- 状态只保存规范化参数值（magic + 参数个数 + 每个 double）。参数个数变化后，旧状态会被拒绝（`setState` 返回 false）。
-- UI 和自动化直接写参数数组，没有加锁。
-
-`Parameters` 的类型是 `ParameterCollection`，可以在 DSP 里按索引或 ID 访问：
-
-```csharp
-int Count;
-ParameterDescriptor GetDescriptor(int index);
-int IndexOf(uint id);
-double GetNormalized(int index);           // 也有 (uint id) 重载
-void SetNormalized(int index, double value);
-double ToPlain(int index, double normalized);
-double ToNormalized(int index, double plain);
-```
-
-## 特性
-
-`[VstPlugin(name)]`：`Vendor`、`Version`、`Url`、`Email`、`SubCategories`、`Kind`、`Editor`。
-
-`[Parameter(name)]`：`ShortTitle`、`Unit`、`Min`、`Max`、`Default`、`Steps`、`CanAutomate`。
-
-类必须标 `partial`；一个程序集只能有一个 `[VstPlugin]` 类；参数字段必须是实例上的 `FloatParameter`。
-
-生成器的诊断：
-
-| ID | 原因 |
+| `AudioBuffer` | Notes |
 | --- | --- |
-| VST3001 | 程序集里有多个 `[VstPlugin]` |
-| VST3002 | 类没有继承 `AudioPlugin` |
-| VST3003 | `[Parameter]` 字段不是 `FloatParameter` |
-| VST3004 | 类没有标 `partial` |
-| VST3005 | 泛型类或嵌套类 |
-| VST3006 | `[Parameter]` 字段是 static |
-| VST3007 | `Editor` 指定的类型没有继承 `EditorView` |
-| VST3008 | `Editor` 指定的类型没有公共无参构造 |
+| `ChannelCount` | Number of channels |
+| `this[int channel]` | `Span<float>`; out-of-range indexes return an empty span |
+| `Channels` | `foreach`-enumerable; elements are `AudioChannel` |
 
-## 生成的模块代码
+| `AudioChannel` | Notes |
+| --- | --- |
+| `Index` | Channel index |
+| `Length` | Sample count |
+| `Samples` | `Span<float>` |
+| `this[int i]` | Reads or writes a single sample |
 
-`<类名>.Vst3.g.cs` 里包含描述符和 `Vst3Module`：
+Audio is always 32-bit float.
 
-- 类 GUID 由 `SHA-256("Vst3Sharp/" + Vendor + "/" + Name)` 派生，`Vendor` 或 `Name` 改了 GUID 就变。
-- `SubCategories` 未指定时，`Effect` 用 `Fx`，`Instrument` 用 `Instrument|Synth`。
-- 模块导出 `GetPluginFactory`、`InitDll`、`ExitDll`。
-- 引用了 `Vst3.Editor.ImGui` 时自动设置 `ViewFactory`；写了 `Editor = typeof(...)` 则改用作者的编辑器，否则插件没有编辑器。
+### FloatParameter
 
-## 逃生口：手写 PluginDescriptor
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Normalized` | `double` | 0–1; the value used by automation and the host |
+| `Value` | `double` | Plain value, mapped through `Min`/`Max` |
+| `Linear` | `float` | `(float)Value`, for use as a multiplier |
 
-不用生成器时，可以自己构造 `PluginDescriptor`，但模块导出、`[UnmanagedCallersOnly]` 和 `Vst3Plugin.Configure` 都要自己写：
+Created when the field is initialized and bound by the generator after construction; reads return 0 before binding.
 
-```csharp
-var descriptor = new PluginDescriptor(
-    Name: "Gain",
-    ClassId: guid,                     // 自己保证稳定
-    Vendor: "Acme",
-    Kind: PluginKind.Effect,
-    Parameters: new[] { new ParameterDescriptor(0, "Gain", "Gain", "dB", -24, 24, 0) },
-    CreatePlugin: static () => new GainPlugin());
-```
+### MidiEvent
 
-`Vst3.Plugin.AudioProcessor` 是更底层的 DSP 基类，`Process(in ProcessContext)` 直接拿到 `AudioBusBuffers*` 和 `Event*`。这个命名空间下的 `AudioBuffer` 只有 `ChannelCount` 和索引器，没有 `Channels` 枚举。
+| Member | Signature | Notes |
+| --- | --- | --- |
+| `Kind` | `MidiEventKind` | `Other` / `NoteOn` / `NoteOff` |
+| `SampleOffset` | `int` | Offset within the block |
+| `Channel` | `int` | MIDI channel |
+| `Pitch` | `int` | 0–127 |
+| `Velocity` | `float` | 0–1 |
+| `IsNoteOn` / `IsNoteOff` | `bool` | Convenience checks on `Kind` |
 
-## 编辑器
+Only note on/off are parsed; other events appear as `Other` with `Pitch` and `Velocity` set to 0.
 
-不写 `Editor` 时用默认面板：一个参数一行，左边标题，右边滑杆，下面显示工程值和单位。
+### Attributes
 
-自定义编辑器继承 `EditorView`，在 `[VstPlugin]` 里指定：
+`[VstPlugin(name)]`:
+
+| Field | Notes | Default |
+| --- | --- | --- |
+| `Vendor` | Vendor | `"Unknown"` |
+| `Version` | Version | `"1.0.0"` |
+| `Url` | Website | `""` |
+| `Email` | Contact email | `""` |
+| `SubCategories` | Categories | `Fx` for Effect, `Instrument\|Synth` for Instrument |
+| `Kind` | Plugin kind | `PluginKind.Effect` |
+| `Editor` | Custom `EditorView` type | `null` (default panel) |
+
+`[Parameter(name)]`:
+
+| Field | Notes | Default |
+| --- | --- | --- |
+| `ShortTitle` | Short title | `null` (uses the name) |
+| `Unit` | Unit; display only | `""` |
+| `Min` | Minimum value | `0` |
+| `Max` | Maximum value | `1.0` |
+| `Default` | Default value | `0` |
+| `Steps` | Step count; metadata only | `0` (continuous) |
+| `CanAutomate` | Automatable | `true` |
+
+The generator handles `partial`, non-generic, non-nested classes; each assembly exposes one `[VstPlugin]` class; `[Parameter]` fields are instance `FloatParameter`s.
+
+## Bus layout
+
+| `Kind` | Audio input | Audio output | Event input |
+| --- | --- | --- | --- |
+| `Effect` | 0 Input, 1 Sidechain (stereo, Aux, inactive by default) | 0 Output (stereo) | None |
+| `Instrument` | None | 0 Output (stereo) | 0 MIDI In (16 channels) |
+
+Stereo arrangements only.
+
+## Parameter behavior
+
+- Parameter IDs are assigned in field declaration order (0, 1, …). Changing field order after release misaligns the parameters of existing projects.
+- `Steps` and `Unit` affect host display only; they do not quantize values.
+- Automation applies per audio block: each parameter takes only the last point in its queue, written before `Process`.
+- State stores normalized values only (magic + parameter count + one double per parameter). When the parameter count changes, the old state is rejected and `setState` returns false.
+- UI and automation write the parameter array directly, without locking.
+
+### ParameterCollection
+
+| Member | Signature |
+| --- | --- |
+| `Count` | `int` |
+| `GetDescriptor` | `ParameterDescriptor GetDescriptor(int index)` |
+| `IndexOf` | `int IndexOf(uint id)` |
+| `GetNormalized` | `double GetNormalized(int index)` / `(uint id)` |
+| `SetNormalized` | `void SetNormalized(int index, double value)` / `(uint id, double)` |
+| `ToPlain` | `double ToPlain(int index, double normalized)` |
+| `ToNormalized` | `double ToNormalized(int index, double plain)` |
+
+## Generator
+
+The generator produces `DeclareParameters` and `BindParameters` for the `partial` class and emits `<ClassName>.Vst3.g.cs`:
+
+- `Vst3Module` exports `GetPluginFactory`, `InitDll`, and `ExitDll`.
+- The class GUID is the first 16 bytes of `SHA-256("Vst3Sharp/" + Vendor + "/" + Name)`; changing `Vendor` or `Name` changes the GUID.
+- With a reference to `Vst3.Editor.ImGui`, the default panel is attached automatically; `Editor = typeof(...)` selects the custom editor instead.
+- Parameter IDs follow field declaration order.
+
+Diagnostics:
+
+| ID | Cause |
+| --- | --- |
+| VST3001 | More than one `[VstPlugin]` in the assembly |
+| VST3002 | Class does not derive from `AudioPlugin` |
+| VST3003 | `[Parameter]` field is not a `FloatParameter` |
+| VST3004 | Class is not marked `partial` |
+| VST3005 | Generic or nested class |
+| VST3006 | `[Parameter]` field is static |
+| VST3007 | Type named by `Editor` does not derive from `EditorView` |
+| VST3008 | Type named by `Editor` has no public parameterless constructor |
+
+## Editor
+
+Without `Editor`, the default panel shows one row per parameter with a title, slider, and plain value, and supports wheel adjustment.
+
+A custom editor derives from `EditorView` and is specified through `[VstPlugin]`:
 
 ```csharp
 [VstPlugin("MySynth", Vendor = "Acme", Editor = typeof(MyEditor))]
@@ -162,26 +219,111 @@ public sealed class MyEditor : EditorView
         ui.Text(24, 140, "Hello", new UiColor(230, 230, 236), 18);
     }
 
-    public override void OnPointerDown(in UiPointerEvent e) { /* 命中测试 */ }
-    public override void OnPointerMove(in UiPointerEvent e) { }
-    public override void OnPointerUp(in UiPointerEvent e) { }
+    public override void OnPointerDown(in UiPointerEvent e) { /* hit testing */ }
 }
 ```
 
-`EditorView` 提供：
+### EditorView
 
-- `Parameters`、`SetParameter(id, normalized)`、`BeginEdit(id)`、`EndEdit(id)`。
-- `Input`：`MousePosition`、`IsDown(UiMouseButton)`、`Modifiers`、`WheelDelta`。
-- 回调：`OnRender`、`OnPointerDown/Up/Move`、`OnWheel`、`OnKey`、`OnText`、`OnFocusChanged`、`OnResize`。
-- `UiCanvas`：`Rect`、`RoundRect`、`RectOutline`、`Circle`、`Line`、`Text`、`MeasureText`、`PushClip` / `PopClip`。
+| Member | Signature |
+| --- | --- |
+| `Context` | `PluginViewContext` |
+| `Input` | `UiInput` |
+| `Width` / `Height` | `int` |
+| `Parameters` | `protected ParameterCollection` |
+| `SetParameter` | `protected void SetParameter(uint id, double normalized)`; notifies the host |
+| `BeginEdit` / `EndEdit` | `protected void BeginEdit(uint id)` / `EndEdit(uint id)` |
+| `OnAttach` / `OnDetach` | `protected internal virtual` |
+| `OnRender` | `virtual void OnRender(UiCanvas canvas)` |
+| `OnPointerDown` / `OnPointerUp` / `OnPointerMove` | `virtual void ... (in UiPointerEvent e)` |
+| `OnWheel` | `virtual void OnWheel(in UiWheelEvent e)` |
+| `OnKey` | `virtual void OnKey(in UiKeyEvent e)` |
+| `OnText` | `virtual void OnText(char c)` |
+| `OnFocusChanged` | `virtual void OnFocusChanged(bool focused)` |
+| `OnResize` | `virtual void OnResize(int width, int height)` |
 
-坐标是视区物理像素。事件是只读值类型；从按下到抬起框架保持鼠标捕获，拖出窗口也能收到 Move。Move 不带按键状态，需要时查 `Input.IsDown`。没有控件树，命中测试、布局和焦点由作者负责。键盘事件只做了常用键映射，IME 未实现。
+### UiCanvas
 
-底层仍可自己实现 `IPluginViewFactory`（`nint CreateView(PluginViewContext context)`，返回任意 `IPlugView*`），但要自己处理窗口、输入和渲染。
+Valid only inside `OnRender`; coordinates are view-local physical pixels.
 
-## 限制
+| Method | Signature |
+| --- | --- |
+| `Width` / `Height` | `float` |
+| `Rect` | `Rect(x, y, width, height, UiColor)` |
+| `RoundRect` | `RoundRect(x, y, width, height, radius, UiColor)` |
+| `RectOutline` | `RectOutline(x, y, width, height, UiColor, thickness = 1)` |
+| `Circle` | `Circle(centerX, centerY, radius, UiColor, filled = true)` |
+| `Line` | `Line(x1, y1, x2, y2, UiColor, thickness = 1)` |
+| `Text` | `Text(x, y, string, UiColor, size = 0)`; `size` 0 uses the default font size |
+| `MeasureText` | `Vector2 MeasureText(string, size = 0)` |
+| `PushClip` / `PopClip` | `PushClip(x, y, width, height)` / `PopClip()` |
 
-- 只处理 32-bit float，`getLatencySamples` 和 `getTailSamples` 固定返回 0。
-- 没有采样级自动化，没有 MIDI CC 等事件语义。
-- `getParamStringByValue` 只返回数字，单位由宿主显示。
-- 编辑器回调和音频线程之间没有同步。
+### Input
+
+| `UiPointerEvent` | Notes |
+| --- | --- |
+| `Action` | `UiPointerAction.Move` / `Down` / `Up` |
+| `Button` | The button that changed; `None` for move events |
+| `X` / `Y` | View coordinates |
+| `Modifiers` | `UiModifiers` flags |
+| `Position` | `Vector2` |
+
+`UiWheelEvent`: `X`, `Y`, `Delta` (1 is one notch up), `Modifiers`, `Position`.
+
+`UiKeyEvent`: `Key` (`UiKey`), `VirtualKey`, `IsDown`, `IsRepeat`, `Modifiers`.
+
+`UiInput`: `MouseX`, `MouseY`, `MousePosition`, `Modifiers`, `WheelDelta`, `IsDown(UiMouseButton)`.
+
+The framework keeps mouse capture from press to release, so Move events still arrive outside the window. Move events carry no button state; button state is available through `Input.IsDown`. The framework provides no widget tree; hit testing, layout, and focus management are the plugin author's responsibility. The keyboard maps common keys only; IME is not implemented.
+
+## Low-level API
+
+Without the generator, the plugin constructs `PluginDescriptor` itself and also supplies the module exports, `[UnmanagedCallersOnly]`, and `Vst3Plugin.Configure`.
+
+| `PluginDescriptor` | Default |
+| --- | --- |
+| `Name` | Required |
+| `ClassId` | Required; stable GUID is the plugin's responsibility |
+| `Vendor` | `"Unknown"` |
+| `Url` / `Email` | `""` |
+| `Category` | `"Audio Module Class"` |
+| `SubCategories` | `"Fx"` |
+| `Version` | `"1.0.0"` |
+| `Parameters` | `null` |
+| `CreateProcessor` | `null` |
+| `Kind` | `Effect` |
+| `ViewFactory` | `null` |
+| `CreatePlugin` | `null` |
+
+| `ParameterDescriptor` | Default |
+| --- | --- |
+| `Id` | Required |
+| `Title` | Required |
+| `ShortTitle` / `Units` | `""` |
+| `Min` / `Max` / `Default` | `0` / `1.0` / `0` |
+| `StepCount` | `0` |
+| `Flags` | `ParameterFlags.CanAutomate` |
+
+`AudioProcessor` is the lower-level DSP base class:
+
+| Member | Signature |
+| --- | --- |
+| `Parameters` | `ParameterCollection` |
+| `SampleRate` | `double` |
+| `MaxBlockSize` | `int` |
+| `SetupProcessing` | `virtual void SetupProcessing(double sampleRate, int maxBlockSize)` |
+| `SetActive` | `virtual void SetActive(bool active)` |
+| `Terminate` | `virtual void Terminate()` |
+| `Process` | `abstract void Process(in ProcessContext context)` |
+
+`ProcessContext` exposes `AudioBusBuffers*`, `Event*`, `InputBusCount`, `OutputBusCount`, and `EventCount` directly, plus `Input(int)` / `Output(int)` returning `Vst3.Plugin.AudioBuffer`. The `AudioBuffer` in this namespace provides only `ChannelCount` and an indexer; it has no `Channels`.
+
+`IPluginViewFactory.CreateView(PluginViewContext context)` returns an arbitrary `IPlugView*`; window, input, and rendering are handled by the implementation.
+
+## Limitations
+
+- 32-bit float only; `getLatencySamples` and `getTailSamples` always return 0.
+- No sample-accurate automation; events parse note on/off only, with no MIDI CC or other semantics.
+- `getParamStringByValue` returns a number only; units are displayed by the host.
+- No synchronization between editor callbacks and the audio thread.
+- Windows x64 only; each instance carries its own .NET runtime.

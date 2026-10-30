@@ -62,4 +62,4 @@ public sealed partial class GainPlugin : AudioPlugin    //创建Vst3插件
 | CanAutomate | 参数是否可自动化 | `true` |
 ## 文档
 
-- [插件 API 参考](api.md)
+- [插件 API 参考](api-Zh-CN.md)
