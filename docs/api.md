@@ -22,7 +22,6 @@
   - [UiCanvas](#uicanvas)
   - [Input](#input)
 - [Low-level API](#low-level-api)
-- [Limitations](#limitations)
 
 ## Namespaces
 
@@ -319,11 +318,3 @@ Without the generator, the plugin constructs `PluginDescriptor` itself and also 
 `ProcessContext` exposes `AudioBusBuffers*`, `Event*`, `InputBusCount`, `OutputBusCount`, and `EventCount` directly, plus `Input(int)` / `Output(int)` returning `Vst3.Plugin.AudioBuffer`. The `AudioBuffer` in this namespace provides only `ChannelCount` and an indexer; it has no `Channels`.
 
 `IPluginViewFactory.CreateView(PluginViewContext context)` returns an arbitrary `IPlugView*`; window, input, and rendering are handled by the implementation.
-
-## Limitations
-
-- 32-bit float only; `getLatencySamples` and `getTailSamples` always return 0.
-- No sample-accurate automation; events parse note on/off only, with no MIDI CC or other semantics.
-- `getParamStringByValue` returns a number only; units are displayed by the host.
-- No synchronization between editor callbacks and the audio thread.
-- Windows x64 only; each instance carries its own .NET runtime.

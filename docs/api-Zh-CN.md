@@ -22,7 +22,6 @@
   - [UiCanvas](#uicanvas)
   - [输入](#输入)
 - [底层接口](#底层接口)
-- [限制](#限制)
 
 ## 命名空间
 
@@ -319,11 +318,3 @@ public sealed class MyEditor : EditorView
 `ProcessContext` 直接暴露 `AudioBusBuffers*`、`Event*`、`InputBusCount`、`OutputBusCount`、`EventCount`，另有 `Input(int)` / `Output(int)` 返回 `Vst3.Plugin.AudioBuffer`。该命名空间下的 `AudioBuffer` 仅提供 `ChannelCount` 和索引器，不提供 `Channels`。
 
 `IPluginViewFactory.CreateView(PluginViewContext context)` 返回任意 `IPlugView*`；该方式下的窗口、输入与渲染由实现方处理。
-
-## 限制
-
-- 仅处理 32-bit float；`getLatencySamples` 和 `getTailSamples` 固定返回 0。
-- 不支持采样级自动化；事件仅解析 note on/off，不包含 MIDI CC 等语义。
-- `getParamStringByValue` 仅返回数字，单位由宿主显示。
-- 编辑器回调与音频线程之间未做同步。
-- 仅支持 Windows x64；每个实例包含独立的 .NET 运行时。
