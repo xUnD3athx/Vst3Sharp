@@ -101,7 +101,6 @@ unsafe
             var terminate = (delegate* unmanaged[Stdcall]<void*, int>)componentVt[4];
             var getBusCount = (delegate* unmanaged[Stdcall]<void*, int, int, int>)componentVt[7];
             var getBusInfo = (delegate* unmanaged[Stdcall]<void*, int, int, int, BusInfo*, int>)componentVt[8];
-            var activateBus = (delegate* unmanaged[Stdcall]<void*, int, int, int, byte, int>)componentVt[10];
             var setActive = (delegate* unmanaged[Stdcall]<void*, byte, int>)componentVt[11];
             var setState = (delegate* unmanaged[Stdcall]<void*, void*, int>)componentVt[12];
             var getState = (delegate* unmanaged[Stdcall]<void*, void*, int>)componentVt[13];
@@ -157,12 +156,6 @@ unsafe
                     int textHr = getParamStringByValue(controller, 0, 0.25, text);
                     Console.WriteLine(
                         $"param[0] hr=0x{paramHr:X8} id={parameter.Id} default={parameter.DefaultNormalizedValue:0.000} text(0.25, hr=0x{textHr:X8})=\"{String128.Read(text)}\"");
-
-                    ParameterInfo scAmount = default;
-                    int scHr = getParameterInfo(controller, 1, &scAmount);
-                    int scTextHr = getParamStringByValue(controller, 1, 0.8, text);
-                    Console.WriteLine(
-                        $"param[1] hr=0x{scHr:X8} id={scAmount.Id} default={scAmount.DefaultNormalizedValue:0.000} text(0.8, hr=0x{scTextHr:X8})=\"{String128.Read(text)}\"");
                 }
 
                 ProcessSetup setup = default;
@@ -172,43 +165,36 @@ unsafe
                 setup.SampleRate = 48000.0;
                 Console.WriteLine($"setupProcessing -> 0x{setupProcessing(processor, &setup):X8}");
 
-                int setHr = setParamNormalized(controller, 0, 0.25);
-                Console.WriteLine($"setParamNormalized(0, 0.25) -> 0x{setHr:X8} now={getParamNormalized(controller, 0):0.000}");
+                int setHr = setParamNormalized(controller, 0, 0.5);
+                Console.WriteLine($"setParamNormalized(0, 0.5) -> 0x{setHr:X8} now={getParamNormalized(controller, 0):0.000} (0 dB)");
 
                 setActive(component, 1);
                 setProcessing(processor, 1);
 
-                Console.WriteLine("block 1: passthrough");
-                BlockRunner.Run(process, processor, 0.8f, 0.4f);
+                Console.WriteLine("block 1: 0 dB, unity gain");
+                BlockRunner.Run(process, processor, 0.8f, 0.8f);
 
-                Console.WriteLine("block 1b: sidechain signal present, SC Amount still 0 (must stay unity)");
-                BlockRunner.Run(process, processor, 0.8f, 0.4f, withSidechain: true, sidechain: 0.8f);
+                setParamNormalized(controller, 0, 0.25);
+                Console.WriteLine("block 2: -12 dB (normalized 0.25)");
+                BlockRunner.Run(process, processor, 0.8f, 0.2009509f);
 
-                activateBus(component, MediaTypes.Audio, BusDirections.Input, 1, 1);
-                setParamNormalized(controller, 1, 0.8);
-                Console.WriteLine("block 4: sidechain level 0.8, SC Amount 0.8");
-                BlockRunner.Run(process, processor, 0.8f, 0.144f, withSidechain: true, sidechain: 0.8f);
-
-                Console.WriteLine("block 5: automation via IParameterChanges (gain 0.25)");
-                setParamNormalized(controller, 1, 0.0);
-                var queue = NativeParamValueQueue.Create(0, 0, 0.125);
+                setParamNormalized(controller, 0, 0.5);
+                Console.WriteLine("block 3: automation via IParameterChanges (-12 dB)");
+                var queue = NativeParamValueQueue.Create(0, 0, 0.25);
                 var changes = NativeParameterChanges.Create(queue.Pointer);
-                BlockRunner.Run(process, processor, 0.8f, 0.2f, changes: changes.Pointer);
+                BlockRunner.Run(process, processor, 0.8f, 0.2009509f, changes: changes.Pointer);
 
                 Console.WriteLine("state roundtrip");
                 setParamNormalized(controller, 0, 0.25);
-                setParamNormalized(controller, 1, 0.8);
                 var stream = NativeMemoryStream.Create();
                 int saveHr = getState(component, stream.Pointer);
                 stream.Rewind();
-                setParamNormalized(controller, 0, 0.5);
-                setParamNormalized(controller, 1, 0.0);
+                setParamNormalized(controller, 0, 0.75);
                 int loadHr = setState(component, stream.Pointer);
                 double gainAfter = getParamNormalized(controller, 0);
-                double scAfter = getParamNormalized(controller, 1);
-                bool statePass = Math.Abs(gainAfter - 0.25) < 1e-9 && Math.Abs(scAfter - 0.8) < 1e-9;
+                bool statePass = Math.Abs(gainAfter - 0.25) < 1e-9;
                 Console.WriteLine(
-                    $"getState=0x{saveHr:X8} setState=0x{loadHr:X8} gain={gainAfter:0.000} sc={scAfter:0.000} -> {(statePass ? "PASS" : "FAIL")}");
+                    $"getState=0x{saveHr:X8} setState=0x{loadHr:X8} gain={gainAfter:0.000} -> {(statePass ? "PASS" : "FAIL")}");
 
                 setProcessing(processor, 0);
                 setActive(component, 0);

@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <AssemblyName>Plugin.Passthrough</AssemblyName>
-    <RootNamespace>Plugin.Passthrough</RootNamespace>
+    <AssemblyName>Plugin.Gain</AssemblyName>
+    <RootNamespace>Plugin.Gain</RootNamespace>
     <PublishAot>true</PublishAot>
     <NativeLib>Shared</NativeLib>
     <StripSymbols>false</StripSymbols>
     <IsVst3Plugin>true</IsVst3Plugin>
-    <Vst3BundleName>Passthrough</Vst3BundleName>
+    <Vst3BundleName>Gain</Vst3BundleName>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vst3.Plugin\Vst3.Plugin.csproj" />
