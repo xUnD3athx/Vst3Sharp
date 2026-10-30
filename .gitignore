@@ -20,3 +20,4 @@ imgui.ini
 
 # VST3 SDK CMake build (internal validation tooling)
 build-sdk/
+docs/vst3-csharp-plan.md
