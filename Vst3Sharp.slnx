@@ -5,9 +5,9 @@
     <Project Path="src/Vst3.Plugin.Generator/Vst3.Plugin.Generator.csproj" />
     <Project Path="src/Vst3.Editor.ImGui/Vst3.Editor.ImGui.csproj" />
   </Folder>
-  <Folder Name="/samples/">
-    <Project Path="samples/Host.Manual/Host.Manual.csproj" />
-    <Project Path="samples/Plugin.Gain/Plugin.Gain.csproj" />
-    <Project Path="samples/Plugin.SineSynth/Plugin.SineSynth.csproj" />
+  <Folder Name="/examples/">
+    <Project Path="examples/Host.Manual/Host.Manual.csproj" />
+    <Project Path="examples/Plugin.Gain/Plugin.Gain.csproj" />
+    <Project Path="examples/Plugin.SineSynth/Plugin.SineSynth.csproj" />
   </Folder>
 </Solution>
